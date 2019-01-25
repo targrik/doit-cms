@@ -1,22 +1,28 @@
 <?php
+
 /*
 DoIt! CMS and VarVar framework
-Copyright (C) 2011 Fakhrutdinov Damir (aka Ainu)
+The MIT License (MIT)
 
-*      This program is free software; you can redistribute it and/or modify
-*      it under the terms of the GNU General Public License as published by
-*      the Free Software Foundation; either version 2 of the License, or
-*      (at your option) any later version.
-*      
-*      This program is distributed in the hope that it will be useful,
-*      but WITHOUT ANY WARRANTY; without even the implied warranty of
-*      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*      GNU General Public License for more details.
-*      
-*      You should have received a copy of the GNU General Public License
-*      along with this program; if not, write to the Free Software
-*      Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-*      MA 02110-1301, USA.
+Copyright (c) 2011-2016 Damir Fakhrutdinov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 0.19 Скаффолдинг, ArrayAccess, обработка ошибок, мультиязычность, оптимизация скорости 28.12.2011
 0.11 ActiveRecord и foreach для объектов 07.08.2011
@@ -27,7 +33,7 @@ Copyright (C) 2011 Fakhrutdinov Damir (aka Ainu)
 //error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 error_reporting(0);
 session_start();
-
+mb_internal_encoding("UTF-8");
 
 /**
  * Обработчик ошибок, возникающих при работе функций любого типа (шаблоны, функции и т.д.)
@@ -220,16 +226,19 @@ class PDODummy
  */
 class doitClass
 {
+	public $is_using_route_all=false;
+	public $callables=array();
 	public $datapool=array(); //Большой массив всех опций, данных и переменных, для быстрого прямого доступа доступен публично
 	public static $instance;
 	private $_run_before = false;
-	private $fragmentslist=array(); //Массив кода фрагментов и шаблонов.
+	public $fragmentslist=array(); //Массив кода фрагментов и шаблонов.
 	public $php_files_list=array(); //Массив найденных php файлов.
 	private $ini_database=array(); //Названия существующих ini-файлов, а также факт их использования
 	private $for_include=array(); //Массив файлов для последующего инклуда
 	private $for_ini=array(); //Массив файлов для последующей загрузки
 	private $url_parts=array(); //Фрагменты url, разделённые знаком '/'
 	private $url_string=''; //Сформированная строка URL без GET параметров
+	private $url_string_raw=''; //Сформированная строка URL без GET параметров и index
 	private $call_chain=array(); //Цепь вызовов
 	private $call_chain_start=array(); //Текущая функция, корень цепочки
 	private $call_chain_current_link=array(); //Текущий элемент цепочки
@@ -247,11 +256,30 @@ class doitClass
 	private $_prepared_content=array();
 	private $validate_disabled=false;
 	public $langlink='';
+	protected $_closures = array();
+	public static $autoload_folders = array();
+	public $current_route = false; //Последний сработавший роут
+
+	public $_current_include_directory = ''; //Путь, в которых лежат функции-кложуры
+	//Автопоиск путей для Кложур
+	public $_closure_current_view_path = false; //Пути, в которых искать вьюшки. Сюда пишутся пути, вызываемые фунциями
+	public $_closure_directories = array(); //Пути, в которых лежат функции-кложуры
+	//Автопоиск путей для роутов
+	public $_router_current_view_path = false; //Пути, в которых искать вьюшки. Сюда пишутся пути, вызываемые роутами
+	public $_router_directories = array(); //Пути, в которых лежат роуты
+	//group
+	public $_current_route_basename=false;
+	
+	public $http_request = false;
+	public $http_response = false;
+	public $middleware_pipe = false;
+	public $events_pool = array();
 /* ================================================================================= */	
 	function __construct()
 	{
 		self::$instance = $this;
 		
+		define ('ROOT',substr( dirname(__FILE__) ,0,-4));
 		
 		
 		//тут описана работа с базой данных
@@ -275,9 +303,10 @@ class doitClass
 			//Создание заголовки для подавления ошибок и доступа к скаффолдингу
 			$this->db=new PDODummy();
 		}
-		
-		
+
 		// Массив для шаблонизатора
+		$this->template_patterns[]='#([^a-zA-Z01-9\)\]\"\\\'\-\+\/])\~([a-zA-Z])#';
+		$this->template_replacements[]='$1d()->$2';
 		
 		// <foreach users as user>
 		$this->template_patterns[]=	'/<foreach\s+(.*?)\s+as\s+([a-zA-Z0-9_]+)>/';
@@ -331,6 +360,70 @@ foreach($tmparr as $key=>$subval)
 		}   }
 		if ($doit->datapool["override"]!="") { print $doit->{$doit->datapool["override"]}(); } else { ?'.'>';
 
+		// {* comment *}
+		$this->template_patterns[]='#{\*.*?\*}#muis';
+		$this->template_replacements[]='';
+
+		// @ print 2+2;
+		$this->template_patterns[]='#^\s*@((?!import|page|namespace|charset|media|font-face|keyframes|-webkit|-moz-|-ms-|-o-|region|supports|document).+)$#mui';
+		$this->template_replacements[]='<?php $1; ?>';
+
+		
+		$this->template_patterns[]='/<tree\s+(.*)>/';
+		$this->template_replacements[]='<?php 
+		$passed_tree_elements = array();
+		$child_branch_name = "$1";
+		$call_stack = array();
+		$last_next = true;
+		d()->level = 0;
+		while (true) {
+			if(is_object(d()->this)){
+				$is_valid = d()->this->valid();
+			}else{
+				break;
+			}
+			if($is_valid){
+				if(isset($passed_tree_elements[d()->this["id"]])){
+					break;
+				}
+				$passed_tree_elements[d()->this["id"]]=true;
+			?>';
+
+				
+		$this->template_patterns[]='/<\/tree>/' ;
+		$this->template_replacements[]='<?php 
+											
+			 }
+			
+			if( isset( d()->this[$child_branch_name]) && count(d()->this[$child_branch_name])>0){
+				$call_stack[] = d()->this;
+				d()->this = d()->this[$child_branch_name];
+				d()->level++;
+				continue;
+			}else{
+				if(is_object(d()->this)){
+					if(!d()->this->valid()){
+						if( count($call_stack)>0){
+							d()->this = array_pop($call_stack);
+							d()->level--;
+							d()->this->next();
+							continue;
+						}else {
+							break;
+						}
+					}else{
+						d()->this->next();
+					}
+					continue 1;
+				}else{
+ 					break;
+				}
+			}
+		} ?>';
+				
+    	
+		
+		
 		// {{{content}}}
 		$this->template_patterns[]='/\{{{([#a-zA-Z0-9_]+)\}}}/';
 		$this->template_replacements[]='<'.'?php print $doit->render("$1"); ?'.'>';
@@ -363,6 +456,8 @@ foreach($tmparr as $key=>$subval)
 		$this->template_replacements[]='{{test}}>';
 		*/
 
+		$this->template_patterns[]='#\{{([\\\\a-zA-Z0-9_/]+\.html)}}#';
+		$this->template_replacements[]='<'.'?php print $doit->view->partial("$1"); ?'.'>';
 
 		// {{content}}
 		$this->template_patterns[]='/\{{([#a-zA-Z0-9_]+)\}}/';
@@ -373,8 +468,8 @@ foreach($tmparr as $key=>$subval)
 		$this->template_replacements[]= '<'.'?php print $doit->call("$1", array(d()->$2));  ?'.'>';
 
 		// {{helper 'parame','param2'=>'any'}}
-		$this->template_patterns[]='/\{{([#a-zA-Z0-9_]+)\s+(.*?)\}}/';
-		$this->template_replacements[]='<'.'?php print $doit->call("$1",array(array($2))); ?'.'>';
+	##	$this->template_patterns[]='/\{{([#a-zA-Z0-9_]+)\s+(.*?)\}}/';
+	##	$this->template_replacements[]='<'.'?php print $doit->call("$1",array(array($2))); ?'.'>';
 
 		// <@helper 'parame' param2 = 'any'>
 		$this->template_patterns[]='/<@([#a-zA-Z0-9_]+)\s+(.*?)>/';
@@ -410,8 +505,8 @@ foreach($tmparr as $key=>$subval)
         $this->template_replacements[]='<'.'?php }  ?'.'>';
 
         // {title}
-		$this->template_patterns[]='/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/';
-		$this->template_replacements[]='<'.'?php print  $doit->$1; ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/';
+	##	$this->template_replacements[]='<'.'?php print  $doit->$1; ?'.'>';
 
 		// {:title}
 		$this->template_patterns[]='/\{:([a-zA-Z0-9\._]+)\}/';
@@ -430,8 +525,8 @@ foreach($tmparr as $key=>$subval)
 //		$this->template_replacements[]='<'.'?php if((is_array($doit->$1) && $doit->$1[\'$2\']) || $doit->$1->$2) { ?'.'>';
 
 		// {page.title}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php if(is_array($doit->$1)) {  print  $doit->$1[\'$2\']; }else{ print  $doit->$1->$2; } ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php if(is_array($doit->$1)) {  print  $doit->$1[\'$2\']; }else{ print  $doit->$1->$2; } ?'.'>';
 
 		//DEPRECATED
 		// {page.title:}
@@ -444,28 +539,28 @@ foreach($tmparr as $key=>$subval)
 
 		// {.title|h}
 		$this->template_patterns[]='/\{\.([a-zA-Z0-9_]+)\|([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php if(is_array($doit->this)) {  print  $2($doit->this[\'$1\']); }else{ print  $2($doit->this->$1); } ?'.'>';
+		$this->template_replacements[]='<'.'?php if(is_array($doit->this)) {  print  $doit->$2($doit->this[\'$1\']); }else{ print  $doit->$2($doit->this->$1); } ?'.'>';
 		
 		// </if> //DEPRECATED
 //		$this->template_patterns[]='/\<\/if\>/';
 //		$this->template_replacements[]='<'.'?php } ?'.'>';
 
 		// {title|h}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\|([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php print  $doit->$2($doit->$1); ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\|([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php print  $doit->$2($doit->$1); ?'.'>';
 
 
 		// {{.image|preview 'parame','param2'=>'any'}}
-		$this->template_patterns[]='/\{\.([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
-		$this->template_replacements[]='<'.'?php print $doit->call("$2",array(array($doit->this[\'$1\'], $3))); ?'.'>';
+	##	$this->template_patterns[]='/\{\.([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
+	##	$this->template_replacements[]='<'.'?php print $doit->call("$2",array(array($doit->this[\'$1\'], $3))); ?'.'>';
 
 		// {{image|preview 'parame','param2'=>'any'}}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
-		$this->template_replacements[]='<'.'?php print $doit->call("$2",array(array($doit->$1, $3))); ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
+	##	$this->template_replacements[]='<'.'?php print $doit->call("$2",array(array($doit->$1, $3))); ?'.'>';
 
 		// {{news.image|preview 'parame','param2'=>'any'}}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
-		$this->template_replacements[]='<'.'?php print $doit->call("$3",array(array($doit->$1[\'$2\'], $4))); ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\|([#a-zA-Z0-9_]+)\s+(.*?)\}/';
+	##	$this->template_replacements[]='<'.'?php print $doit->call("$3",array(array($doit->$1[\'$2\'], $4))); ?'.'>';
 
 
 		// {"userlist"|t}
@@ -477,20 +572,20 @@ foreach($tmparr as $key=>$subval)
 		$this->template_replacements[]='<'.'?php if(is_array($doit->$1)) {  print  $doit->$3($doit->$1[\'$2\']); }else{ print  $doit->$3($doit->$1->$2); } ?'.'>';
 
 		// {page.user.title}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3; ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3; ?'.'>';
 
 		// {page.user.title|h}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\|([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php print $doit->$4( $doit->$1->$2->$3); ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\|([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php print $doit->$4( $doit->$1->$2->$3); ?'.'>';
 
 		// {page.parent.user.title}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3->$4; ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3->$4; ?'.'>';
 
 		// {page.parent.user.avatar.url}
-		$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
-		$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3->$4->$5; ?'.'>';
+	##	$this->template_patterns[]='/\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+).([a-zA-Z0-9_]+)\}/';
+	##	$this->template_replacements[]='<'.'?php print  $doit->$1->$2->$3->$4->$5; ?'.'>';
 
 
 
@@ -533,11 +628,12 @@ foreach($tmparr as $key=>$subval)
 		if($_where_question_sign !== false) {
 			$_tmpurl = substr($_tmpurl, 0, $_where_question_sign); 
 		}
-		
+		$this->url_string_raw = $_tmpurl;
 		//приписывание в конце слешей index
 		if(substr($_tmpurl,-1)=='/') {
 			$_tmpurl=$_tmpurl."index";
 		}
+		
 		$this->url_string = $_tmpurl;
 		
 		//сохранение фрагментов url
@@ -545,31 +641,66 @@ foreach($tmparr as $key=>$subval)
 		
 		$_files=array();
 		//сначала инициализируются файлы из ./cms, затем из ./app
-		$_work_folders = array('cms','app');
+		if(isset($_ENV['APP_DIRS']) && $_ENV['APP_DIRS']!=''){
+			$_work_folders = array_map('trim', explode(',', $_ENV['APP_DIRS']));
+		}else{
+			$_work_folders = array('cms','app');
+		}
+		$ignore_subfolders = array('.','..','internal','external','fields','vendor');
 		
 		define('SERVER_NAME',preg_replace('/^www./i','',$_SERVER['SERVER_NAME']));
 		if(file_exists($_SERVER['DOCUMENT_ROOT'].'/sites/'.SERVER_NAME)){
 			$_work_folders[]='sites/'.SERVER_NAME;
+		}else{
+			preg_match('#(^.*?)\.#',SERVER_NAME,$m);
+			$subdomain = ($m[1]);
+			if(file_exists($_SERVER['DOCUMENT_ROOT'].'/sites/'.$subdomain)){
+				$_work_folders[]='sites/'.$subdomain;
+			}
 		}
 		$disabled_modules=array();
 		if(defined('DISABLED_MODULES')){
 			$disabled_modules=explode(',',DISABLED_MODULES);
 		}
-		foreach($_work_folders as $dirname) { 
+		
+		$simple_folders = array();
+		
+		foreach($_work_folders as $dirname) {
+			
+			$current_ignore_subfolders = $ignore_subfolders;
+			
+			
 			$_files[$dirname]['/']=array();
 			$_handle = opendir($_SERVER['DOCUMENT_ROOT'].'/'.$dirname);
-
+			if (!$_handle) {
+				continue;
+			}
 			while (false !== ($_file = readdir($_handle))) {
-				 if(substr($_file,0,4)=='mod_' && !in_array(substr($_file,4), $disabled_modules)) {
-					$_subhandle = opendir($_SERVER['DOCUMENT_ROOT'].'/'.$dirname.'/'.$_file);
-					$_files[$dirname]['/'.$_file.'/']=array();
-					while (false !== ($_subfile = readdir($_subhandle))) {
-						$_files[$dirname]['/'.$_file.'/'][]=$_subfile;
+				if($dirname =='cms'){
+					if(isset($_ENV['DOIT_ADMIN_VERSION']) && $_ENV['DOIT_ADMIN_VERSION']=='2' && $_file == 'mod_admin'){
+						continue;
 					}
-					closedir($_subhandle);
-				 } else {
+					if((!isset($_ENV['DOIT_ADMIN_VERSION']) || $_ENV['DOIT_ADMIN_VERSION']!='2') && $_file == 'admin'){
+						continue;
+					}
+					
+				}
+				if(substr($_file,0,4)=='mod_') {
+					if(!in_array(substr($_file,4), $disabled_modules)){
+						$_subhandle = opendir($_SERVER['DOCUMENT_ROOT'].'/'.$dirname.'/'.$_file);
+						$_files[$dirname]['/'.$_file.'/']=array();
+						while (false !== ($_subfile = readdir($_subhandle))) {
+							$_files[$dirname]['/'.$_file.'/'][]=$_subfile;
+						}
+						closedir($_subhandle);
+					}
+				} elseif (is_dir($_SERVER['DOCUMENT_ROOT'].'/'.$dirname .'/'. $_file) && !in_array($_file, $ignore_subfolders) ){
+					//Модули 2.0, список директорий
+					$simple_folders[] = $dirname.'/'.$_file;
+					doitClass::_fill_simple_folders_subdirectories($dirname.'/'.$_file, $simple_folders);
+				} else {
 					$_files[$dirname]['/'][]=$_file;
-				 }
+				}
 			}
 			closedir($_handle);
 		}
@@ -578,6 +709,7 @@ foreach($tmparr as $key=>$subval)
 		$for_ini=array();
 		$ini_files_dirs=array();
 		$ini_files_local=array();
+		
 		foreach($_work_folders as $dirname) {
 
 			foreach($_files[$dirname] as $_dir => $_subfiles) {
@@ -648,20 +780,161 @@ foreach($tmparr as $key=>$subval)
 			
 			
 		}
+		$autoload_folders = array();
+		
+		
+		foreach($simple_folders as $folder){
+			
+			
+			$_handle = opendir($_SERVER['DOCUMENT_ROOT'].'/'.$folder);
 
-		foreach($this->for_include as $value) {
-			include($_SERVER['DOCUMENT_ROOT'].'/'.$value);
+			while (false !== ($_file = readdir($_handle))) {
+				//ищем php файлы
+				$extension = strrchr($_file, '.');
+				if ($extension=='.php' || is_dir($_SERVER['DOCUMENT_ROOT'].'/'.$folder.'/'.$_file)) {
+					$fistrsim = $_file{0};
+					if($fistrsim>='A' && $fistrsim<='Z'){
+						//это класс
+						$autoload_folders[$folder]=true;
+					}else{
+						$this->for_include[$folder.'/'.$_file] = $folder.'/'.$_file;
+					}
+				}elseif ($extension=='.ini') {
+					//Правила, срабатывающие в любом случае, инициализация опций системы  и плагинов
+					if (substr($_file,-8)=='init.ini') {
+						//Если имя файла оканчивается на .init.ini, инициализировать его сразу
+						$this->for_ini[$folder.'/'.$_file]=($folder.'/'.$_file);
+					} else {
+						//При первом запросе адрес сбрасывается в false для предотвращения последующего чтения
+						//Хранит адрес ini-файла, запускаемого перед определённой функцией //DEPRECATED
+
+						$_dir_file=($folder.'/'.$_file);
+
+						
+						//Реалзация приоритетов: одноимённый файл из папки app переопределит тотже из папки cms
+						if(isset($ini_files_dirs[$_dir_file])){
+							foreach($this->ini_database as $_key=> $_ininame){
+								foreach($_ininame as $key=>$value){
+									if($value==$ini_files_dirs[$_dir_file]){
+										unset($this->ini_database[$_key][$key]);
+									}
+								}
+							}
+						}
+						$ini_files_dirs[$_dir_file]=$folder.'/'.$_file;
+						if(isset($this->ini_database[substr($_file,0,-4)])){
+							$this->ini_database[substr($_file,0,-4)][]=$folder.'/'.$_file;
+						}else{
+							$this->ini_database[substr($_file,0,-4)]=array($folder.'/'.$_file);
+						}
+					}
+					continue;
+				}
+				
+				
+				
+			}
+			//создаём план работы над директориями и их кодом
+			//PHP файлы инклудим
+			//HTML файлы запоминаем
+			
 		}
-
 		foreach($this->for_ini as $value) {
 			$this->load_and_parse_ini_file ($value);
 		}
 		
+		doitClass::$autoload_folders = array_keys($autoload_folders);
+		spl_autoload_register(function  ($class_name) {
+
+			$class_name = ltrim($class_name, '\\');
+			$fileName  = '';
+			$namespace = '';
+			if ($lastNsPos = strripos($class_name, '\\')) {
+				$namespace = substr($class_name, 0, $lastNsPos);
+				$class_name = substr($class_name, $lastNsPos + 1);
+				$fileName  = str_replace('\\', DIRECTORY_SEPARATOR, $namespace) . DIRECTORY_SEPARATOR;
+			}
+			$fileName_simple = $fileName .  $class_name . '.php';
+			$fileName .= str_replace('_', DIRECTORY_SEPARATOR, $class_name) . '.php';
+			//$fileName = 'vendors'.DIRECTORY_SEPARATOR.$fileName;
+			$lover_class_name=strtolower($class_name);
+			
+			foreach (doitClass::$autoload_folders as $path){
+				 
+				
+				if(is_file($_SERVER['DOCUMENT_ROOT'].'/'. $path . '/'.$fileName  )){
+					require $_SERVER['DOCUMENT_ROOT'].'/'. $path . '/'.$fileName ;
+					return;
+				}
+				if(is_file($_SERVER['DOCUMENT_ROOT'].'/'. $path . '/'.$fileName_simple  )){
+					require $_SERVER['DOCUMENT_ROOT'].'/'. $path . '/'.$fileName_simple ;
+					return;
+				}	
+				
+			}
+			 
+
+		},true,true);
+		
+		if(PHP_VERSION_ID > 50408) {
+			$this->http_request = Zend\Diactoros\ServerRequestFactory::fromGlobals(
+				$_SERVER,
+				$_GET,
+				$_POST,
+				$_COOKIE,
+				$_FILES
+			);
+			
+			$this->http_response = new Zend\Diactoros\Response();
+			
+			
+			$this->middleware_pipe=new Zend\Stratigility\MiddlewarePipe();
+			
+			
+		}
+		
+		foreach($this->for_include as $value) {
+			
+			$this->_current_include_directory = dirname($_SERVER['DOCUMENT_ROOT'].'/'.$value);
+			
+			$this->_current_route_basename = false;
+			
+			if(is_file($_SERVER['DOCUMENT_ROOT'].'/'.$value)){
+				include($_SERVER['DOCUMENT_ROOT'].'/'.$value);	
+			}
+			$this->_current_route_basename = false;
+		}
+		
+		//Отрабатывает роутинг
+		if($this->is_using_route_all){
+
+			$url = $this->url_string;
+			$uparts = array();
+			preg_match_all('#\/([0-9a-zA-Z_]+)\/.*#',$url,$uparts);
+			$upart_found=false;
+			if(isset($uparts[1][0]) && (class_exists($uparts[1][0].'controller'))){
+				//Мы находимся по адресу /users/ и у нас есть контроллер users. Строго гоовря, мы готовы.
+				$sub_uparts = array();
+				foreach (doitClass::$instance->datapool['urls'] as $rule){
+					preg_match_all('#\^?\/([0-9a-zA-Z_]+)\/.*#',$rule[0],$sub_uparts);
+					if(isset($sub_uparts[1][0]) && $sub_uparts == $uparts[1][0]){
+						$upart_found=true;
+						break;
+					}					
+				}
+				if(!$upart_found){
+					route($uparts[1][0]);
+				}
+			}
+		}
+		
+		
+		
 		d()->bootstrap();
 		
-		if(file_exists($_SERVER['DOCUMENT_ROOT'].'/app/static') && strpos($_SERVER['REQUEST_URI'],'..')===false && $_SERVER['REQUEST_URI'] !='/'    && file_exists($_SERVER['DOCUMENT_ROOT'].'/app/static'.$_SERVER['REQUEST_URI']) && is_file($_SERVER['DOCUMENT_ROOT'].'/app/static'.$_SERVER['REQUEST_URI']) ){
+		if(file_exists($_SERVER['DOCUMENT_ROOT'].'/app/static') && strpos($this->url_string,'..')===false && $this->url_string !='/'    && file_exists($_SERVER['DOCUMENT_ROOT'].'/app/static'.$this->url_string) && is_file($_SERVER['DOCUMENT_ROOT'].'/app/static'.$this->url_string) ){
 			
-			$this->compiled_fragments['doit_open_static_file'] = $this->shablonize(file_get_contents($_SERVER['DOCUMENT_ROOT'].'/app/static'.$_SERVER['REQUEST_URI']));
+			$this->compiled_fragments['doit_open_static_file'] = $this->shablonize(file_get_contents($_SERVER['DOCUMENT_ROOT'].'/app/static'.$this->url_string));
 			$this->_prepared_content['main'] = $this->compile_and_run_template('doit_open_static_file');
 		}
 		
@@ -676,6 +949,135 @@ foreach($tmparr as $key=>$subval)
 		 
 	}
 
+	
+	
+	/* VERSION 2.0 */
+	public $routes=array();
+	function route($adress, $closure=false){
+		$route = new Route();
+		$route->map($adress, $closure);
+		$route->initiateAutoFind($this->_current_include_directory);
+		$this->routes[]=$route;
+		return $route;
+	}
+	
+	function post($adress, $closure=false){
+		$route = new Route();
+		$route->map($adress, $closure);
+		$route->method = array('POST');
+		$route->initiateAutoFind($this->_current_include_directory);
+		$this->routes[]=$route;
+		return $route;
+	}
+	
+	function get($adress, $closure=false){
+		$route = new Route();
+		$route->map($adress, $closure);
+		$route->method = array('GET');
+		$route->initiateAutoFind($this->_current_include_directory);
+		$this->routes[]=$route;
+		return $route;
+	}
+	
+	function group($url, $closure=false){
+		$this->_current_route_basename = $url;
+		if($closure!==false){
+			$closure();
+		}
+	}
+	
+	function dispatch($level='content'){
+ 
+		
+		$accepted_routes = array();
+		$url=urldecode(strtok($_SERVER["REQUEST_URI"],'?'));
+		foreach($this->routes as $route){
+			if($route->check($url,$_SERVER['REQUEST_METHOD'])){
+				$accepted_routes[]=$route;
+			}
+		}
+		if(count($accepted_routes)){
+			$this->current_route = $accepted_routes[0];
+			$result = $accepted_routes[0]->dispatch($url);
+			$this->current_route = false;
+			return $result;
+		}
+		return false;
+	}
+	function new_pipe()
+	{
+		return new Zend\Stratigility\MiddlewarePipe();
+	}
+	function add($path=false, $middleware = null){
+		/* обёртка для запуска как иконки {{add}}, так и для добавления middleware */
+		if(is_array($path) || $path === false){
+			return d()->call('add',array($path));
+		}
+		$this->middleware_pipe->pipe($path, $middleware);
+	}
+	
+	function pipe($path, $middleware = null){
+		$this->middleware_pipe->pipe($path, $middleware);
+	}
+	function write($text){
+		$this->http_response->getBody()->write($text);
+	}
+	/* Функция, стартующая вообще всё. */
+	function main(){
+		
+		if(PHP_VERSION_ID > 50408) {
+			$this->middleware_pipe->pipe(function($request, $response, $next){
+				$response->getBody()->write($this->call('main'));
+			});
+			
+			$this->middleware_pipe->pipe(function ($err, $request, $response, $next) {
+				if(iam('developer')){
+					$trace = $err->getTrace();
+					$result .= '<br>Trace:<br>';
+					foreach($trace as $val){
+						$result .=  $val['file'] .':'. $val['line']. '<br />';
+					}
+					$result .= '<br />';
+					print print_error_message('Выброшено исключение',$err->getLine(),$err->getFile() ,$err->getMessage()."<br>".$result,'Исключение' );
+				}else{
+					print print_error_message('Выброшено исключение',' ',' ' ,$err->getMessage(),'Исключение' );
+				}
+				exit;
+			});
+			
+			$pipe = $this->middleware_pipe;
+			$this->http_response = $pipe($this->http_request, $this->http_response);
+			foreach ($this->http_response->getHeaders() as $name => $values) {
+				foreach ($values as $value) {
+					header(sprintf('%s: %s', $name, $value), false);
+				}
+			}
+			return $this->http_response->getBody();
+		}
+		return $this->call('main');
+	}
+	
+	/*
+		Функция, загружающая контент страницы
+	*/
+	public function content()
+	{
+		//1. (пропускаем) ищем функции (роуты, которые мы можем выполнить, и выполняем их)
+		//3. Передаём дальше в content
+		//d()->router->dispatch();
+		$result = d()->dispatch();
+		if($result === false){
+			return d()->call('content');
+		}
+		return $result;
+		
+		
+	}
+	/* END VERSION 2.0 */
+	
+	
+
+	
 	/**
 	 * Проверяет данные, полученные с формы, учитывая опции валидатора и пользовательские функции. Также проверяет факт
 	 * получения $_POST как такового, например, если обязательных данных нет. В случае ошибки возвращает false.
@@ -1032,7 +1434,11 @@ foreach($tmparr as $key=>$subval)
 			//Тут вызываются предопределённые и пользовательские функции
 			ob_start('doit_ob_error_handler');
 			$been_controller=false;
-			if (function_exists($name)) {
+			if(isset($this->datapool[$name]) && ($this->datapool[$name] instanceof Closure)) {
+				//Сохраняем путь, в котором был инициирована Closure
+				$this->_closure_current_view_path = $this->_closure_directories[$name];
+				$_executionResult=call_user_func_array($this->datapool[$name], $arguments);
+			}elseif (function_exists($name)) {
 
 				//Подстановка аргументов из $this->_last_router_rule
 				//$this->_last_router_rule содержит активное правило роутера (например, "/users/")
@@ -1051,6 +1457,8 @@ foreach($tmparr as $key=>$subval)
 			} elseif(isset($this->php_files_list[$name])){
 				include ($_SERVER['DOCUMENT_ROOT'].'/'.$this->php_files_list[$name]);
 				$been_controller=true;
+			}elseif(isset($this->callables[$name])){
+				$_executionResult=call_user_func_array($this->callables[$name], $arguments);
 			} else {
 				$_fsym=strpos($name,'#');
 				if($_fsym !== false) {
@@ -1073,23 +1481,34 @@ foreach($tmparr as $key=>$subval)
 					$_classname = $_first_letter.substr($_classname,1);
 
 					$_methodname=substr($name,$_fsym+1);
-
+					$_chain_method=$_methodname;
 					if($_methodname=='') {
 						if(is_numeric($arguments[0])){
 							$_methodname = 'show';
+							$_chain_method=$_methodname;
 						}else{
-
 							if($arguments[0]==''){
 								$_methodname='index';
-							}else{
-								$_methodname=$arguments[0];
+								$_chain_method=$_methodname;
+							}else{		
+								if(method_exists($_classname,$arguments[0])){
+									$_methodname=$arguments[0];
+									$_chain_method=$_methodname;
+								}else{
+									$_methodname='show';
+									//Если файл controller_$arguments.html существует то все нормально
+									if(substr($name,0,$_fsym) == 'pages' && isset($this->fragmentslist[substr($name,0,$_fsym).'_'.$arguments[0].'_tpl'])){
+										$_chain_method=$arguments[0];
+									}else{
+										$_chain_method='show';
+									}
+								}
 							}
 							unset($arguments[0]);
 						}
 						//В случае вызова controller# переменовывается цепочка для нормального определения вида исход из имени метода
-						$this->call_chain[$this->call_chain_level][$this->call_chain_current_link[$this->call_chain_level]]=$name.$_methodname;
+						$this->call_chain[$this->call_chain_level][$this->call_chain_current_link[$this->call_chain_level]]=$name.$_chain_method;
 					}
-
 					//$_executionResult=call_user_func_array(array($this->universal_controller_factory($_classname), $_methodname), $arguments);
 					call_user_func_array(array($this->{$_classname}, 'before'), array($_methodname, $arguments));
 					$_executionResult=call_user_func_array(array($this->{$_classname}, $_methodname), $arguments);
@@ -1207,6 +1626,21 @@ foreach($tmparr as $key=>$subval)
 		return 	$this->call($name, $arguments);
 	}
 
+	public static function _fill_simple_folders_subdirectories($path, &$simple_folders){
+		
+		$_handle = opendir($_SERVER['DOCUMENT_ROOT'].'/'.$path);
+		if (!$_handle) {
+			return;
+		}
+		while (false !== ($_file = readdir($_handle))) {
+			 if ($_file{0}=="+" && is_dir($_SERVER['DOCUMENT_ROOT'].'/'.$path .'/'. $_file)  ) {
+				$simple_folders[] = $path.'/'.$_file;
+				doitClass::_fill_simple_folders_subdirectories($path.'/'.$_file, $simple_folders); 
+			 }
+		}
+		closedir($_handle);
+		
+	}
 
 	/**
 	 * Фабрика экземпляров контроллеров
@@ -1235,9 +1669,20 @@ foreach($tmparr as $key=>$subval)
 	 */
 	function __set($name,$value)
 	{
+		
+		unset($this->_closures[$name]);
+		if( is_object($value) && ($value instanceof Closure)){
+			$this->_closure_directories[$name] = $this->_current_include_directory;
+		}
 		$this->datapool[$name]=$value;
 	}
 
+	function singleton($name,$closure){
+		$this->datapool[$name] = $closure;
+		$this->_closure_directories[$name] = $this->_current_include_directory;
+		$this->_closures[$name] = true; //является синглтоном
+	}
+	
 	/**
 	 * Получает из реестра значение переменной либо, при её отстуствии, запускает допольнитмельные функции, такие как
 	 * фабрика классов, фабрика моделей d()->User, и другие, могут быть заданы в ini-файлах
@@ -1245,7 +1690,7 @@ foreach($tmparr as $key=>$subval)
 	 * @param $name Имя переменной
 	 * @return mixed Значение
 	 */
-	function __get($name)
+	function &__get($name)
 	{
 	;
 		//Одиночная загрузка .ini файла при первом обращении к переменной
@@ -1256,13 +1701,25 @@ foreach($tmparr as $key=>$subval)
 		}
 		
 		if(isset($this->datapool[$name])) {
+			if( is_object($this->datapool[$name]) && ($this->datapool[$name] instanceof Closure)){
+				$closure = $this->datapool[$name];
+				if(isset($this->_closures[$name])){ //синглтон
+					$result = $closure();
+					$this->datapool[$name] = $result;
+					return $result;
+				}
+				//не синглтон, обычный контейнер
+				$result = $closure();
+				return $result;
+			}
 			return $this->datapool[$name];
 		}
 		
 		//$fistrsim =  ord(substr($name,0,1));
 		//if($fistrsim>64 && $fistrsim<91){
 		if(preg_match('/^[A-Z].+/', $name)) {
-			return new $name();
+			$result = new $name();
+			return $result;
 		}
 
 		//Проверка префиксов для модулей для модулей и расширений
@@ -1285,6 +1742,19 @@ foreach($tmparr as $key=>$subval)
 		return '';
 	}
 
+
+	public function __isset($name) {
+		if (isset($this->ini_database[$name])) {
+   			$this->load_and_parse_ini_file($this->ini_database[$name]);
+     			unset($this->ini_database[$name]);
+  		}
+		return isset($this->datapool[$name]);
+	}
+	 
+	public function __unset($name) {
+		unset($this->datapool[$name]);
+	}
+ 
 	/**
 	 * Возвращает имя текущей функции (триады). Даже если в её теле запускались другие функции, текущая не потеряется
 	 * Внутри вложенных функций текущая функция будет другой. Внутренняя. Используется при обработке ошибок
@@ -1447,9 +1917,126 @@ foreach($tmparr as $key=>$subval)
 /* ================================================================================= */
 	function shablonize($_str)
 	{	
-		return  preg_replace($this->template_patterns,$this->template_replacements,str_replace(array("\r\n","\r"),array("\n","\n"),$_str));	
+		
+
+		$_str   = preg_replace($this->template_patterns,$this->template_replacements,str_replace(array("\r\n","\r"),array("\n","\n"),$_str));	
+		$_str = preg_replace('#{\.(.*?)}#','{this.$1}',$_str);
+		$_str = preg_replace_callback( "#\{((?:[a-zA-Z_]+[a-zA-Z0-9_]*?\.)*[a-zA-Z_]+[a-z0-9_]*?)}#mui", function($matches){
+			d()->matches = ($matches);
+			$string = $matches[1]; //user.comments.title
+			$substrings = explode('.',$string);
+			
+			$result = '<?php print '.doitClass::$instance->compile_advanced_chain($substrings). '; ?>';
+			/*
+			$first = array_shift($substrings);
+			$result = '<?php print $doit->'.$first . implode('',array_map(function($str){
+				return "->".$str."";
+			},$substrings)) . '; ?>';   //$user ['comments']  ['title']*/
+			return $result;
+		}, $_str);
+			
+		
+		$_str = preg_replace_callback( "#\{((?:[a-z0-9_]+\.)*[a-z0-9_]+)((?:\|[a-z0-9_]+)+)}#mui", function($matches){
+			d()->matches = ($matches);
+			$string = $matches[1]; //user.comments.title
+ 
+			$substrings = explode('.',$string);
+			
+			
+			$result = '  '.doitClass::$instance->compile_advanced_chain($substrings);
+			/*
+			$first = array_shift($substrings);
+			
+			$result = '  $doit->'.$first . implode('',array_map(function($str){
+				return "->".$str."";
+			},$substrings)) . ' ';   //$user ['comments']  ['title']
+			*/
+			
+			$functions = $matches[2]; //|h|title|htmlspecialchars
+			$substrings = (explode('|',$functions));
+			array_shift($substrings);
+			$result = '<?php print  ' . array_reduce($substrings, function($all, $item){
+				return '$doit->'.$item.'('. $all .')';
+			}, $result) .  ' ; ?>'; 
+			
+			return $result;
+		}, $_str);
+		
+		$_str = preg_replace_callback( "#\{((?:[a-z0-9_]+\.)*[a-z0-9_]+)((?:\|.*?)+)}#mui", function($matches){
+			d()->matches = ($matches);
+			$string = $matches[1]; //user.comments.title
+ 
+			$substrings = explode('.',$string);
+			
+			
+			$result = '  '.doitClass::$instance->compile_advanced_chain($substrings);
+			
+			/*
+			$first = array_shift($substrings);
+			$result = '  $doit->'.$first . implode('',array_map(function($str){
+				return "['".$str."']";
+			},$substrings)) . ' ';   //$user ['comments']  ['title']
+			*/
+			$functions = $matches[2]; //|h|title|htmlspecialchars
+			$substrings = (explode('|',$functions));
+			array_shift($substrings);
+			$result = '<?php print  ' . array_reduce($substrings, function($all, $item){
+			
+				preg_match('#([a-z0-9_]+)(\s+.*)?#',$item,$m);
+				if(is_null($m[2])){
+					return '$doit->'.$m[1].'('. $all .')';
+				}else{
+				
+					$attr_params = $m[2]; //'50', '100' '200' user="10"   ===>   '50', '100', '200', 'user'=>"10"
+					
+					$attr_params = preg_replace('#\s+=\s+\\\'(.*?)\\\'#',' => \'$1\' ',$attr_params);
+					$attr_params = preg_replace('#\s+=\s+\\"(.*?)\\"#',' => "$1" ',$attr_params);
+					$attr_params = preg_replace('#([\s\$a-zA-Z0-9\\"\\\']+)=\s([\s\$a-zA-Z0-9\\"\\\']+)#','$1=>$2',$attr_params);
+					$attr_params = preg_replace('#\s+([a-z0-9_]+?)\s*=>#',' \'$1\' => ',$attr_params);
+					return '$doit->'.$m[1].'(array('. $all .', '. $attr_params .'))';
+				}
+				
+			}, $result) .  ' ; ?>'; 
+			
+			return $result;
+		}, $_str);
+		
+
+		$_str = preg_replace_callback( "/{{([#a-zA-Z0-9_]+)\s+(.*?)\}}/mui", function($matches){
+			//file_put_contents('1.txt',json_encode($matches));
+			$attr_params = ' '.$matches[2];
+			$attr_params = preg_replace('#\s+=\s+\\\'(.*?)\\\'#',' => \'$1\' ',$attr_params);
+			$attr_params = preg_replace('#\s+=\s+\\"(.*?)\\"#',' => "$1" ',$attr_params);
+			$attr_params = preg_replace('#([\s\$a-zA-Z0-9\\"\\\']+)=\s([\s\$a-zA-Z0-9\\"\\\']+)#','$1=>$2',$attr_params);
+			$attr_params = preg_replace('#\s+([a-z0-9_]+?)\s*=>#',' \'$1\' => ',$attr_params);
+			return '<?php print $doit->call("' .$matches[1] . '",array(array('.$attr_params.')));?>';
+		
+		}, $_str);
+		
+		
+		
+		return $_str;
+		
 	}
 
+	
+	function compile_advanced_chain($arr){
+		
+		$str='';
+		foreach($arr as $key=>$value){
+			if($key==0){
+				$str = '$_c_tmp=$doit->'.$value.'';
+			}else{
+				$str = '$_c_tmp=(is_object('.$str.')?$_c_tmp->'.$value.':$_c_tmp["'.$value.'"])';
+			}
+			
+		}
+		return $str;
+		
+	}
+	
+	
+	
 	/**
 	 * Выводит значение переменной, либо, при её отсуствии, запускает соотвествующую одноимённую функцию
 	 * Таким образом, если запускать d()->render('content') вместо d()->content(), можно заранее в коде переопределить
@@ -1498,13 +2085,24 @@ foreach($tmparr as $key=>$subval)
 		$res=array();
 		$currentGroup='';
 		$arrayKeys=array();
+		$cache_block = false;
 		foreach($ini as $row) {
-			$first_symbol=substr($row,0,1);
+			$first_symbol=substr(trim($row),0,1);
 			if($first_symbol==';') continue; //Комментарии строки игнорируются
 			if ($first_symbol=='[') { //Начало новой группы [group]
 				$currentGroup=substr($row,1,-1);
 				continue;
 			}
+			if ($first_symbol=='{') { //Начало новой группы {
+				$cache_block = true;
+				continue;
+			}
+			if ($first_symbol=='}') { //Начало новой группы {
+				$cache_block = false;
+				$arrayKeys[$currentGroup]++;
+				continue;
+			}
+			
 			$delimeterPos=strpos($row,'=');
 			if($delimeterPos===false) {
 				//Если тип строки - неименованный массив, разделённый пробелами
@@ -1556,12 +2154,62 @@ foreach($tmparr as $key=>$subval)
 				$value=array($arrayKeys[$currentGroup]=>$value);
 				$arrayKeys[$currentGroup]++; //Генерация номера элемента массива, массив нельзя перемешивать с обычными данными
 				
-			} else {
+			} elseif ($cache_block) { //Активирован режим фигурных скобок
+				
+				
+				$subject=$currentGroup;
+					
+				if (!isset($arrayKeys[$currentGroup])) {
+					$arrayKeys[$currentGroup]=0;
+				}
+				
+				$subject_key=  trim(substr($row,0,$delimeterPos));
+ 
+				$value=ltrim(substr($row,$delimeterPos+1));
+				if(substr($value,0,5) == 'json:'){
+					$value = json_decode(substr($value ,5),true);
+				}
+				
+				if (strpos($subject_key,'.')===false) {
+					$value=array($arrayKeys[$currentGroup]=> array($subject_key=>$value));
+				} else {
+					$tmpvalue=$value;
+					$tmparr=array_reverse(explode('.',$subject_key));
+					foreach($tmparr as $subSubject) {
+						$tmpvalue=array($subSubject=>$tmpvalue);
+					}
+					 
+					$value=array($arrayKeys[$currentGroup]=>  $tmpvalue);
+					 
+					
+				}
+				
+				
+				
+				
+				//Если встречаются числовые теги, делается replace вместо merge
+				if (strpos($subject,'.')===false) {
+					$res=array_replace_recursive ($res,array($subject=>$value));
+				} else {
+					$tmpvalue=$value;
+					$tmparr=array_reverse(explode('.',$subject));
+					foreach($tmparr as $subSubject) {
+						$tmpvalue=array($subSubject=>$tmpvalue);
+					}
+					$res=array_replace_recursive ($res,$tmpvalue);
+				}
+				
+				continue;
+				
+			}else {
 				$subject= rtrim(substr($row,0,$delimeterPos));
 				if ($currentGroup!='') {
 					$subject = $currentGroup . '.' . $subject;
 				}
 				$value=ltrim(substr($row,$delimeterPos+1));
+				if(substr($value,0,5) == 'json:'){
+					$value = json_decode(substr($value ,5),true);
+				}
 			}
 			if (strpos($subject,'.')===false) {
 				$res=array_merge_recursive ($res,array($subject=>$value));
@@ -1613,7 +2261,7 @@ foreach($tmparr as $key=>$subval)
 	{
 		$this->is_root_func=false;
 		$this->must_be_stopped=false;
-		return d()->main();
+		return d()->call('main');
 	}
 	function prepare_content($function,$content)
 	{
@@ -1662,7 +2310,27 @@ foreach($tmparr as $key=>$subval)
 		
 		return $res;
 	}
-	
+
+	function on($event, $function){
+		if(!isset($this->events_pool[$event])){
+			$this->events_pool[$event]=array();
+		}
+		$this->events_pool[$event][] = $function;
+	}
+
+	function emit($event, $data=array()){
+		if(isset($this->events_pool[$event])){
+			$result=true;
+			foreach($this->events_pool[$event] as $callback){
+				if($result !== false){
+					$result = call_user_func_array($callback,array($data,$event));
+				}else{
+					return false;
+				}
+			}
+		}
+	}
+
 	function current_version()
 	{
 		static $result = null;
@@ -1672,8 +2340,11 @@ foreach($tmparr as $key=>$subval)
 		return $result;
 	}
 }
+	if(file_exists('vendor/autoload.php')){
+		require_once ('vendor/autoload.php');	
+	}
 
-
+	require_once ($_SERVER['DOCUMENT_ROOT'].'/cms/vendor/autoload.php');
 /**
  * Автоматический создатель классов и загрузчик классов по спецификации PSR-0
  * Ищет файлы вида class_name.class.php, затем ищет классы в папке vendors по спецификации PSR-0.
@@ -1681,7 +2352,8 @@ foreach($tmparr as $key=>$subval)
  *
  * @param $class_name Имя класса
  */
-function __autoload($class_name) {
+ 
+ spl_autoload_register(function  ($class_name) {
 
 	$class_name = ltrim($class_name, '\\');
     $fileName  = '';
@@ -1692,19 +2364,21 @@ function __autoload($class_name) {
         $fileName  = str_replace('\\', DIRECTORY_SEPARATOR, $namespace) . DIRECTORY_SEPARATOR;
     }
     $fileName .= str_replace('_', DIRECTORY_SEPARATOR, $class_name) . '.php';
-	$fileName = 'vendors'.DIRECTORY_SEPARATOR.$fileName;
+	//$fileName = 'vendors'.DIRECTORY_SEPARATOR.$fileName;
 	$lover_class_name=strtolower($class_name);
-
-	if(file_exists(d()->php_files_list[$lover_class_name.'_class'])){
+	if(isset(d()->php_files_list[$lover_class_name.'_class']) && is_file($_SERVER['DOCUMENT_ROOT'].'/'. d()->php_files_list[$lover_class_name.'_class'])){
 		require $_SERVER['DOCUMENT_ROOT'].'/'.d()->php_files_list[$lover_class_name.'_class'];
-	}elseif(file_exists($fileName)){
-		require $_SERVER['DOCUMENT_ROOT'].'/'.$fileName;
+	}elseif(is_file($_SERVER['DOCUMENT_ROOT'].'/'.('vendors'.DIRECTORY_SEPARATOR.$fileName))){
+		require $_SERVER['DOCUMENT_ROOT'].'/'.'vendors'.DIRECTORY_SEPARATOR.$fileName;
 	}else{
-		//Если совсем ничего не найдено, попытка использовать ActiveRecord.
-		eval ("class ".$class_name." extends ActiveRecord {}");
+		if(substr(strtolower($class_name),-10)!='controller' && $class_name{0}>='A' && $class_name{0}<='Z'){
+			//Если совсем ничего не найдено, попытка использовать ActiveRecord.
+			eval ("class ".$class_name." extends ActiveRecord {}");	
+		}
 	}
 
-}
+});
+
 /**
 * Функция, которая ничего не делает.
 */

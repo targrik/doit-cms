@@ -5,6 +5,7 @@
  .admin_edit_form .input-xlarge
  {
 	width:500px;
+	
  }
  
 .top_header
@@ -13,7 +14,17 @@ height:50px;
 background:#17395C;
 border-bottom:1px solid white;
 }
-
+.field_edit_dialog.modal
+{
+	width:800px;
+	
+	margin: -350px 0 0 -400px;
+}
+.my-modal-body
+{
+	
+	max-height:700px;
+}
 .admin_header
 
 {
@@ -140,4 +151,18 @@ height:100%;
 .hidden_on_new_browsers
 {
 	display:none;
+}
+
+.flyer
+{
+	position:fixed;
+	width:400px;
+	left:50%;
+	top:-50%;
+	margin-left:-200px;
+	transition:top 0.5s;
+}
+.flyer div
+{
+box-shadow:1px 2px 4px gray;
 }

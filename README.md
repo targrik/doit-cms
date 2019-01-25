@@ -13,7 +13,7 @@ DoIt CMS
 
 ### Требования
 
-* PHP 5.2 и выше
+* PHP 5.3 и выше
 * MySQL 5
 * Apache 2 (для поддержки перенаправлений в .htaccess)
 
@@ -27,6 +27,10 @@ DoIt CMS
 Именно этот код и находится в файле index.php.
 
 
+### Лицензия
 
-[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/ramainen/doit-cms/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+MIT
 
+### Поддержка
+
+Вопросы можно задавать в Issues или в группе Telegram https://t.me/doit_cms.

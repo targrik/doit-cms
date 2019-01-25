@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="utf-8">
+		<!-- <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"> -->
+		<title>Панель администрирования</title>
+		<link href="/cms/admin/assets/css/bootstrap.min.css" rel="stylesheet">
+		<link href="/cms/admin/assets/css/main.css" rel="stylesheet">
+		<script src="/cms/admin/assets/js/jquery-3.3.1.min.js"></script>
+		<script src="/cms/admin/assets/js/jquery-migrate-1.4.1.min.js"></script>
+			<script src="/cms/external/ace/ace.js"></script>
+		 
+	</head>
+	<body>
+	<div class="menuheader">
+		 
+	</div>
+	<nav class="sidebar">
+		<a href="#" class="admin-menu-icon active">
+			<img src="/cms/external/svg_icons/icon-content.svg" alt="">
+			<span>Контент</span>
+		</a>
+		
+		<a href="#" class="admin-menu-icon">
+			<img src="/cms/external/svg_icons/icon-settings.svg" alt="">
+			<span>Настройки</span>
+		</a>
+		
+		<a href="#" class="admin-menu-icon">
+			<img src="/cms/external/svg_icons/icon-developer.svg" alt="">
+			<span>Разработка</span>
+		</a>
+		
+		<a href="#" class="admin-menu-icon">
+			<img src="/cms/external/svg_icons/icon-logs.svg" alt="">
+			<span>Логи</span>
+		</a>
+		
+		<a href="/admin/logout" class="admin-menu-icon last-icon">
+			<img src="/cms/external/svg_icons/icon-exit.svg" alt="">
+			<span>Выход</span>
+		</a>
+		
+		
+	</nav>
+	<nav class="menubar">
+	 
+		<?php
+
+		$menues = d()->admin['menu']['content'];
+		$menues_keys = array();
+		foreach ($menues as $key=>$menu){
+			if(!empty($menu['id'])){
+				$menues_keys['id'] = $key;
+			}
+			
+			if(isset($menu[0])){
+				if(substr($menu[0],0,1) == "/"){
+					$menu['link']=$menu[0];
+				}else{
+					$menu['link']="/admin/list/{$menu[0]}/";
+				}
+				$menu['title']=$menu[1];
+				
+				$menues[$key] = $menu;
+			}
+		}
+		foreach ($menues as $key=>$menu){
+			if(!empty($menu['parent_id'])){
+				$menues[$menues_keys['id']]["submenues"][] = $menu;
+			}
+
+		}
+		foreach ($menues as $menu){
+			/*if(isset($menu[0])){
+				if(substr($menu[0],0,1) == "/"){
+					$menu['link']=$menu[0];
+				}else{
+					$menu['link']="/admin/list/{$menu[0]}/";
+				}
+				$menu['title']=$menu[1];
+			}*/
+			if(empty($menu['title'])){
+				continue;
+			}
+			if(!empty($menu['parent_id'])){
+				continue;
+			}
+			d()->menu_item = $menu;
+			if(!empty($menu['id'])){ ?>
+				<div class="admin-menu-elements-group">
+					<a href="{menu_item.link}" class="admin-menu-element with-plus js-admin-menu-element">{menu_item.title}</a>
+					<foreach menu_item['submenues']>
+						<a href="{this.link}" class="admin-menu-subelement">{this.title}</a>
+					</foreach>
+					
+				</div>
+			<?php }else { ?>
+			
+			
+				<a href="{menu_item.link}" class="admin-menu-element">{menu_item.title}</a>
+			<?php } ?>
+
+	 	 <?php } ?>
+		 
+		 	
+		<a href="" class="admin-menu-element active">[FAKE]Текстовые страницы</a>
+		<a href="" class="admin-menu-element">Рубрики</a>
+		<div class="admin-menu-elements-group">
+			<a href="" class="admin-menu-element with-plus js-admin-menu-element">Каталог</a>
+			<a href="" class="admin-menu-subelement">Характеристики</a>
+			<a href="" class="admin-menu-subelement">Категории</a>
+			<a href="" class="admin-menu-subelement active">Импорт</a>
+			
+		</div>
+		<a href="" class="admin-menu-element">Опции</a>
+		
+		
+	</nav>
+	<section>
+	  
+	{{{content}}}
+	
+	 	</section>
+		
+		
+		
+			<script type="text/javascript">
+						$(function(){
+						
+						$('.js-admin-menu-element').on('click',function(){
+							$(this).parent().toggleClass('active');
+							return false;
+						});
+								$('.js-tinymce-file-upload').on('change',function(){
+									if ($(this).val()!=''){
+										$('.js-tinymce-file-upload-form').submit();     
+									} 
+									$('.js-tinymce-file-upload').val('');
+								});
+						  })
+						</script>
+						<script src="/cms/external/tinymce4/tinymce.min.js"></script> 
+						 <script>
+						 window.tmp_tinymce_editor = false;
+						 $(function(){
+							tinymce.init({
+								  selector: '.js-tinymce4',
+								  height: 300,   toolbar_item_size: "small",
+								  width:750,
+								  theme: 'modern',
+								  language: 'ru',
+								  paste_data_images: true,
+								  plugins: 'save paste   custom_modules    code searchreplace autolink     visualblocks visualchars image link media template  table charmap hr pagebreak nonbreaking anchor toc   advlist lists textcolor imagetools contextmenu colorpicker textpattern help',
+			  toolbar1: 'save code   custom_modules | undo redo |  formatselect   bold italic strikethrough charmap   forecolor backcolor | link simages image insert | alignleft aligncenter alignright alignjustify  | numlist bullist outdent indent  | removeformat',
+								remove_trailing_brs: false,
+								menubar: false,
+								  templates: [ ],
+								  content_css: [ ],
+								  branding: false,
+								  
+								   images_upload_url: '/admin/tinymce-file-upload',
+								  images_upload_base_path: '',
+								  images_upload_credentials: true,
+								  
+	  
+								  elementpath: false,
+									setup: function (editor) {
+										editor.addButton('simages', {
+											icon: 'image',
+											image: '/cms/internal/gfx/image-add.gif',
+											onclick: function () {
+												window.tmp_tinymce_editor = editor;
+												$('.js-tinymce-file-upload').trigger('click');
+											}
+										});
+									 } 
+							 
+							 });
+								 
+						 });
+						 </script>
+					 
+					 
+					 
+	</body>
+</html>

@@ -338,6 +338,14 @@ function admin_show_one_list($table,$id1,$id2)
 	}
 	//модель для опасного запроса к списку сущностей
 	d()->_list_safe_data=true; //Если переопределяем, то safe пропадает,
+	/*
+	[admin.titles]
+list_title = Текстовые страницы
+	*/
+	if(isset(d()->datapool['admin']['titles']['list_title']) && d()->datapool['admin']['titles']['list_title'] !=''){
+		d()->curr_title=d()->datapool['admin']['titles']['list_title'];
+	}
+	//d()->curr_title='Список объектов из таблицы '.url(3);
 	
 	$model_suffix = '_safe';
 	if(empty($_GET['sort'])){
@@ -699,6 +707,7 @@ function admin_edit()
 	//при помощи GET. Если их нет, то создаются новые скрытые е параметры.
 	$setted_flag=array();
 	d()->row_data = $line;
+	d()->admin_current_scenario = $scenario;
 	foreach ($fields as $field) {
 		d()->title=$field['title'];
 		d()->name='data['.$field['name'].']';
@@ -973,7 +982,17 @@ function admin_save_data($params)
 	}
 	*/
 	
-	
+	if(isset($_POST['_save_and_add'])){
+		print '
+		<script>
+			parent.$(".js-iframe-flyer").css("top","20%");
+			setTimeout(function(){
+				parent.$(".js-iframe-flyer").css("top","-50%");
+			},2000);
+			parent.$(".admin_edit_form").removeAttr("target");
+		</script>';
+		exit;
+	}
 
 	if($_POST['admin_command_redirect_close']=='yes') {
 		$tableortype = url(3);
@@ -1311,6 +1330,28 @@ function admin_scaffold_new()
 
 
 
+function admin_scaffold_list_of_plugins()
+{
+	if(!iam('developer')){ 
+		return 'Устанавливать расширения могут только разработчики';
+	}
+	set_time_limit(0);
+	if(d()->validate('admin_scaffold_list_of_plugins')) {
+		
+		$plugins=$_POST['modules'];
+		
+		d()->message='Процесс установки проведён';
+		
+		
+		d()->PluginInstaller->download_and_install_pack($plugins);
+		
+		//d()->PluginInstaller->install($plugin);
+	}
+	//d()->plugins_list = d()->PluginInstaller->get_list();
+	
+	print d()->view();
+}
+
 function admin_scaffold_install_plugin()
 {
 	if(!iam('developer')){ 
@@ -1431,13 +1472,15 @@ function admin_generate_scheme()
 	}
 	
 	set_time_limit(0);
-	header("Content-Disposition: attachment; filename=schema.ini");
-
-	header("Content-Type: application/octet-stream");
-	header("Content-transfer-encoding: binary");
+	if(!isset($_GET['save']) && $_GET['save'] != '1'){
+		header("Content-Disposition: attachment; filename=schema.ini");
+		header("Content-Type: application/octet-stream");
+		header("Content-transfer-encoding: binary");
+	}
 	$tables = d()->db->query('SHOW TABLES')->fetchAll();
+	$result = "";
 	foreach ($tables as $row){
-		print "[schema.{$row[0]}]\r\n";
+		$result.= "[schema.{$row[0]}]\r\n";
 		
 		$columns = d()->db->query('SHOW COLUMNS FROM '.DB_FIELD_DEL.$row[0].DB_FIELD_DEL)->fetchAll();
 		$printed_array=array();
@@ -1448,8 +1491,20 @@ function admin_generate_scheme()
 		}
 		sort($printed_array);
 		foreach ($printed_array as $column){
-			print "{$column}\r\n";
+			$result.= "{$column}\r\n";
 		}
+	}
+	if(!isset($_GET['save']) && $_GET['save'] != '1'){
+		print $result;	
+		
+	}else{
+		$try = file_put_contents($_SERVER['DOCUMENT_ROOT'].'/app/schema.ini',$result);
+		if($try ===false){
+			header('Location: /admin/scaffold/migrate_scheme?done=0');
+		}else{
+			header('Location: /admin/scaffold/migrate_scheme?done=1');
+		}
+		exit;
 	}
 	//d()->Scaffold->update_scheme();
 	//print d()->view();
@@ -1470,7 +1525,7 @@ function admin()
 			$login=d()->admin['editor']['login'][$key];
 			$password=d()->admin['editor']['password'][$key];
 			
-			if($login == $_POST['login'] && $password == md5($_POST['password'])) {
+			if($login == $_POST['login'] && $password === md5($_POST['password'])) {
 				$_SESSION['admin']=$_POST['login'];
 				unset($_SESSION['whitelist']);
 				header('Location: /');
@@ -1494,4 +1549,50 @@ function admin()
 	}
 	d()->content = d()->content();
 	return d()->render('admin_tpl');
+}
+function form_row($field=array())
+{
+	if(!isset($field['name'])){
+		$field['name'] = $field[1];
+	}
+	
+	if(!isset($field['title'])){
+		$field['title'] = $field[2];
+	}
+	
+	if(!isset($field['type'])){
+		$field['type'] = $field[0];
+	}
+	
+	$line = d()->row_data;
+	$scenario = d()->admin_current_scenario ;
+	
+	d()->title=$field['title'];
+	d()->name='data['.$field['name'].']';
+	
+	d()->value='';
+	d()->field_params=$field;
+	if ((url(4)=='add' || $scenario==2) && isset($_GET[$field['name']])) {
+		d()->value=$_GET[$field['name']];
+	}
+	if ((url(4)=='add' || $scenario==2) && isset($_POST['data'][$field['name']])) {
+		d()->value=$_POST['data'][$field['name']];
+	} 
+	if($field['name']){
+		if (isset($line[$field['name']])) {
+			d()->value=$line[$field['name']];
+		}
+		
+		if (  isset($_GET[$field['name']])) {
+			d()->value=$_GET[$field['name']];
+		}
+	}
+	return d()->call('admin_'.$field['type']);
+}
+
+function admin_utils_phpinfo(){
+	if(iam('developer')){
+		phpinfo();
+		exit;
+	}
 }

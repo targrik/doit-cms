@@ -40,13 +40,23 @@ class CoreTest extends Test
 		{{helper d()->client, 'user', d()->admin,'user'=> d()->list }}
 	
 	*/
+	
+	function test_advanced_syntaxer(){
+		$this->assertEquals(d()->compile_advanced_chain(array('test')),'$_c_tmp=$doit->test');
+		$this->assertEquals(d()->compile_advanced_chain(array('test','test2')),'$_c_tmp=(is_object($_c_tmp=$doit->test)?$_c_tmp->test2:$_c_tmp["test2"])');
+		$this->assertEquals(d()->compile_advanced_chain(array('a','b','c')),'$_c_tmp=(is_object($_c_tmp=(is_object($_c_tmp=$doit->a)?$_c_tmp->b:$_c_tmp["b"]))?$_c_tmp->c:$_c_tmp["c"])');
+	}
+	
 	function test_simple_syntaxis()
 	{
 	
 		//регрессионные тесты
-		$this->assertEquals(d()->shablonize('{test}'),'<?php print  $doit->test; ?>');
+		$this->assertEquals(d()->shablonize('{test}'),'<?php print $_c_tmp=$doit->test; ?>');
 		$this->assertEquals(d()->shablonize('{{test}}'),'<?php print $doit->call("test"); ?>');
-		$this->assertEquals(d()->shablonize('{{test "user"}}'),'<?php print $doit->call("test",array(array("user"))); ?>');
+		$this->assertEquals(d()->shablonize('{{test "user"}}'),'<?php print $doit->call("test",array(array( "user")));?>');
+		$this->assertEquals(d()->shablonize('{{edit "href"=> "/admin/edit/plugins/name?fields=textblock" }}'),'<?php print $doit->call("edit",array(array( "href"=> "/admin/edit/plugins/name?fields=textblock" )));?>');
+		 
+		
 		
 		/*
 		$this->assertEquals(d()->shablonize('{{test user admin les}}'),'<?php print $doit->call("test",array(array(user, admin,	 les))); ?>');

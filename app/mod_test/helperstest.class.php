@@ -29,6 +29,19 @@ class HelpersTest extends Test
 		$this->assertTrue(d()->valid_email('a@a.ru'));
 	}
 	
+	function test_transliterate_url()
+	{
+		
+		
+		$this->assertEquals('dveri-okna-skobyanye-izdeliya',d()->transliterate_url('Двери, окна, скобяные изделия')); 
+		$this->assertEquals('komnata',d()->transliterate_url('Комната')); 
+		$this->assertEquals('komnata-komnat',d()->transliterate_url('Комната-комнат')); 
+		$this->assertEquals('komnata-komnat',d()->transliterate_url('Комната комнат')); 
+		$this->assertEquals('komnata-komnat',d()->transliterate_url('Комната, комнат')); 
+		$this->assertEquals('komnata-komnat',d()->transliterate_url(',Комната, комнат,')); 
+		$this->assertEquals('komnata-komnat',d()->transliterate_url('Комната, , , - , ,комнат')); 
+	}
+	
 	function test_declOfNum()
 	{
 		$this->assertEquals(d()->declOfNum(4,array('попугай','попугая','попугаев')),'попугая');
@@ -86,6 +99,114 @@ class HelpersTest extends Test
 		$this->assertEquals(declOfNum(200,'имперец'),'имперцев');
 		$this->assertEquals(declOfNum(2,'норвежец'),'норвежца');
 		$this->assertEquals(declOfNum(200,'норвежец'),'норвежцев');
+	
+		$this->assertEquals(declOfNum(2,'слово'),'слова');
+		$this->assertEquals(declOfNum(200,'слово'),'слов');
+	
+		$this->assertEquals(declOfNum(2,'потеря'),'потери');
+		$this->assertEquals(declOfNum(200,'потеря'),'потерь');
+	
+	
+		$this->assertEquals(declOfNum(2,'мистика'),'мистики');
+		$this->assertEquals(declOfNum(200,'мистика'),'мистик');
+	
+		$this->assertEquals(declOfNum(2,'человек'),'человека');
+		$this->assertEquals(declOfNum(200,'человек'),'человек');
+	
+		$this->assertEquals(declOfNum(2,'дело'),'дела');
+		$this->assertEquals(declOfNum(200,'дело'),'дел');
+	
+		$this->assertEquals(declOfNum(2,'жизнь'),'жизни');
+		$this->assertEquals(declOfNum(200,'жизнь'),'жизней');
+	
+		$this->assertEquals(declOfNum(2,'день'),'дня');
+		$this->assertEquals(declOfNum(200,'день'),'дней');
+	
+		$this->assertEquals(declOfNum(2,'раз'),'раза');
+		$this->assertEquals(declOfNum(200,'раз'),'раз');
+	
+
+		$this->assertEquals(declOfNum(2,'кусочек'),'кусочка');
+		$this->assertEquals(declOfNum(200,'кусочек'),'кусочков');
+	
+
+		$this->assertEquals(declOfNum(2,'пискля'),'пискли');
+		$this->assertEquals(declOfNum(200,'пискля'),'писклей');
+	
+
+
+		$this->assertEquals(declOfNum(2,'конёк'),'конька');
+		$this->assertEquals(declOfNum(200,'конёк'),'коньков');
+	
+ 
+		$this->assertEquals(declOfNum(2,'мгновение'),'мгновения');
+		$this->assertEquals(declOfNum(200,'мгновение'),'мгновений');
+	
+ 
+		$this->assertEquals(declOfNum(2,'неделя'),'недели');
+		$this->assertEquals(declOfNum(200,'неделя'),'недель');
+	
+ 
+		$this->assertEquals(declOfNum(2,'век'),'века');
+		$this->assertEquals(declOfNum(200,'век'),'веков');
+	
+		$this->assertEquals(declOfNum(2,'индеец'),'индейца');
+		$this->assertEquals(declOfNum(200,'индеец'),'индейцев');
+	
+		$this->assertEquals(declOfNum(2,'китаец'),'китайца');
+		$this->assertEquals(declOfNum(200,'китаец'),'китайцев');
+	
+		$this->assertEquals(declOfNum(2,'американец'),'американца');
+		$this->assertEquals(declOfNum(200,'американец'),'американцев');
+	
+		$this->assertEquals(declOfNum(2,'африканец'),'африканца');
+		$this->assertEquals(declOfNum(200,'африканец'),'африканцев');
+	
+		$this->assertEquals(declOfNum(2,'боец'),'бойца');
+		$this->assertEquals(declOfNum(200,'боец'),'бойцов');
+	
+		$this->assertEquals(declOfNum(2,'молодец'),'молодца');
+		$this->assertEquals(declOfNum(200,'молодец'),'молодцов');
+	 
+		$this->assertEquals(declOfNum(2,'гвардеец'),'гвардейца');
+		$this->assertEquals(declOfNum(200,'гвардеец'),'гвардейцев');
+	   
+		$this->assertEquals(declOfNum(2,'печенька'),'печеньки');
+
+		$this->assertEquals(declOfNum(200,'печенька'),'печенек');
+
+
+		$this->assertEquals(declOfNum(2,'чюченька'),'чюченьки');
+		$this->assertEquals(declOfNum(200,'чюченька'),'чюченек');
+	 
+		$this->assertEquals(declOfNum(2,'буча'),'бучи');
+		$this->assertEquals(declOfNum(200,'буча'),'буч');
+	 
+		$this->assertEquals(declOfNum(2,'жуга'),'жуги');
+		$this->assertEquals(declOfNum(200,'жуга'),'жуг');
+	   
+		$this->assertEquals(declOfNum(2,'жужа'),'жужи');
+		$this->assertEquals(declOfNum(200,'жужа'),'жуж');
+	 
+		$this->assertEquals(declOfNum(2,'душа'),'души');
+		$this->assertEquals(declOfNum(200,'душа'),'душ');
+	 
+		$this->assertEquals(declOfNum(2,'шуша'),'шуши');
+		$this->assertEquals(declOfNum(200,'шуша'),'шуш');
+	 
+   
+		$this->assertEquals(declOfNum(2,'дурь'),'дури');
+		$this->assertEquals(declOfNum(200,'дурь'),'дурей');
+
+		$this->assertEquals(declOfNum(2,'кефаль'),'кефали');
+		$this->assertEquals(declOfNum(200,'кефаль'),'кефалей');
+	 
+		$this->assertEquals(declOfNum(2,'штаны'),'штанов');
+		$this->assertEquals(declOfNum(200,'штаны'),'штанов');
+	 
+ 
+
+		$this->assertEquals(declOfNum(200,'макака'),'макак');
 		
 		$this->assertEquals(declOfNum(22,'child'),'children');
 		$this->assertEquals(declOfNum(1,'child'),'child');
@@ -108,6 +229,39 @@ class HelpersTest extends Test
 		
 	}
 
+
+	function test_online_super_declOfNum()
+	{
+		 
+		//Проверка 2 вида (родительный падеж)
+		$words = array('беззаботность',"туркмен","юность","ручка","кусок"); //проверено
+		$words = array('год' ,'дело',"жизнь",'день','рука','раз');//проверено
+		$words = array('кусочек' ,'пискля',"жучара",'пожарник','документ','отчёт');//проверено
+		$words = array('алмагель' , 'протокол', 'смартфон','страница','крыса','конёк');//проверено
+		$words = array('секунда',"минута","год","час","век","мгновение","день","неделя");//проверено
+		$words = array("индеец","китаец","индус","американец","африканец","боец","молодец");//проверено
+		$words = array("женщина","сторона","вопрос","возможность","результат","группа","действие");//проверено
+		$words = array("блюм","чюченька","буча","кушон","трюль","жуга","дыгун");//проверено
+		$words = array("мука","жужа","буча","дура","душа","дума","шуша");//проверено
+		$words = array("портфель","емеля","звонарь","январь","дурь","тюль","кефаль");//проверено
+		$words = array();
+		foreach ($words as $word){
+			$xml = file_get_contents('http://api.morpher.ru/WebService.asmx/GetXml?s='.$word);
+
+			$p = xml_parser_create();
+			xml_parse_into_struct($p, $xml, $vals, $index);
+			xml_parser_free($p);
+			 
+			 
+			;
+			$rodit = $vals[1]['value'];
+			$mn_rodit = $vals[14]['value'];
+			$this->assertEquals(declOfNum(2, $word),$rodit);
+			$this->assertEquals(declOfNum(100, $word),$mn_rodit);
+
+		}
+ 
+	}
 	function test_preview()
 	{
 		//тестируем превью
@@ -400,8 +554,57 @@ class HelpersTest extends Test
 		$this->assertEquals(d()->Date('January 23, 2014')->ru_user(), '23 января 2014');
 		$this->assertEquals(d()->Date('01 сентябрь 2014')->ru_user(), '1 сентября 2014');
 		$this->assertEquals(d()->Date('01 сентябрь 2014')->tt_user(), '1 сентябрь 2014');
+		
+		$this->assertEquals(d()->Date('01 сентября 2014 23:12:12')->to_mysql(), '2014-09-01 23:12:12');
+		$this->assertEquals(d()->Date('02 сентября 2014 23:12')->to_mysql(), '2014-09-02 23:12:00');
+		$this->assertEquals(d()->Date('24 янв 99 23:12')->to_mysql(), '1999-01-24 23:12:00');
+		
+		$this->assertEquals(d()->Date('24 янв 99 23:12')->to_mysql(), '1999-01-24 23:12:00');
+		$this->assertEquals(d()->Date('24 янв 99 3:12')->to_mysql(), '1999-01-24 03:12:00');
+		$this->assertEquals(d()->Date('02 сентября 2014 1:1')->to_mysql(), '2014-09-02 01:01:00');
+		$this->assertEquals(d()->Date('02 сентября 2014 1:1:1')->to_mysql(), '2014-09-02 01:01:01');
+		$this->assertEquals(d()->Date('1 2 2003 1:12:1')->to_mysql(), '2003-02-01 01:12:01');
+		
+		
+		
+		$this->assertEquals(d()->Date('24 янв 99 каравай хлебца')->to_mysql(), '1999-01-24 12:00:00');
+		
+		
 
 	}
+	
+	function test_antispam(){
+		//Проверка всякого рода спам-писем.
+		//Однозначно "хорошие" сообщения
+		$this->assertTrue(antispam('Здравствуйте! Сколько стоит установить окна?'));
+		$this->assertTrue(antispam('http://okna-company.ru Здравствуйте! Это наш сайт. Сколько стоит продвижение сайта?'));
+		$this->assertTrue(antispam('http://okna-company.ru http://okna-company.ru Здравствуйте! Это наш сайт. Сколько стоит продвижение сайта?'));
+
+		$this->assertTrue(antispam('Здравствуйте! Я хочу заказать машину. Мне нравятся следующие: http://agwdfoywbabsdf.com http://foabakqjahafhasdfasd.com http://baydnkankalkaslasls.com Лето Синий Лис Ягнёнок Бесконечность Бытия Обречённость'));
+		
+		//Однозначно "плохие" сообщения
+		$this->assertFalse(antispam('Online Sex [url=http://agwdfoywbabsdf.com]http://agwdfoywbabsdf.com[/url] online casino.'));
+		
+		$this->assertFalse(antispam('http://agwdfoywbabsdf.com http://foabakqjahafhasdfasd.com http://baydnkankalkaslasls.com Лето Синий Лис Ягнёнок Бесконечность Бытия Обречённость'));
+		
+		
+		$this->assertFalse(antispam('Courts are a place where serious business is conducted, and that demands appropriate attire, says Delaware Superior Court Judge William Witham Jr., <a href=http://www.ju-this-site-is-fake-mplightfarmsonline.com/new-air-max-2013-run-this-link-is-fake-ning-shoes-for-men-blue-p-2692.html><b>New Air Max 2013 Running Shoes For Men Blue</b></a>, Between the redesign of its denim collection and the launch of a plus size fashion blog, the company has certainly taken strides to provide all women with the awesome denim options they deserve. Check out some of the photos from the look book below, and head to Fashion To Figure to purchase.锘縜'));
+		
+		
+		//Тут письмо подозрительно, так как только английские символы и ссылка. Если есть ссылка и только английские символы - значит спамер.
+		$this->assertFalse(antispam('Courts are a place where serious business is conducted, and that demands appropriate attire, says Delaware Superior Court Judge William Witham Jr.,  http://www.ju-this-site-is-fake-mplightfarmsonline.com/new-air-max-2013-run-this-link-is-fake-ning-shoes-for-men-blue-p-2692.html><b>New Air Max 2013 Running Shoes For Men Blue , Between the redesign of its denim collection and the launch of a plus size fashion blog, the company has certainly taken strides to provide all women with the awesome denim options they deserve. Check out some of the photos from the look book below, and head to Fashion To Figure to purchase.锘縜'));
+			
+			
+		$this->assertFalse(antispam('Amdimr <a href=\"http://ydufshhyeuao.com/\">ydufshhyeuao</a>, [url=http://abtzmbcevibp.com/]abtzmbcevibp[/url], [link=http://znaragczxwqp.com/]znaragczxwqp[/link], http://bxueqcscjdwv.com/'));
+		
+		
+		
+		
+		
+		
+		
+	}
+	
 }
  
 ?>

@@ -1,23 +1,28 @@
 <?php
 /*
 
-	DoIt! CMS and VarVar framework
-	Copyright (C) 2011 Fakhrutdinov Damir (aka Ainu)
+DoIt! CMS and VarVar framework
+The MIT License (MIT)
 
-	*      This program is free software; you can redistribute it and/or modify
-	*      it under the terms of the GNU General Public License as published by
-	*      the Free Software Foundation; either version 2 of the License, or
-	*      (at your option) any later version.
-	*
-	*      This program is distributed in the hope that it will be useful,
-	*      but WITHOUT ANY WARRANTY; without even the implied warranty of
-	*      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	*      GNU General Public License for more details.
-	*
-	*      You should have received a copy of the GNU General Public License
-	*      along with this program; if not, write to the Free Software
-	*      Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-	*      MA 02110-1301, USA.
+Copyright (c) 2011-2016 Damir Fakhrutdinov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
  
 */
 	
@@ -74,6 +79,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 	public static $_queries_cache=array();
 	public static $_columns_cache=array();
 	public $_options;
+	public $_clones=array();
 	public $_data;
 	public $is_model=false;
 	private $_get_by_id_cache = false;
@@ -83,12 +89,12 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 	private $_known_columns=array();
 	private $_count_rows = 0;
 	private $_future_data=array();
-	private $_cursor=0;
+	public $_cursor=0;
 	public $current_page=0;
 	public $per_page=10;
 	private $_is_sliced=false;
 	private $_revinded=0;
-	private $_count=0;
+	public $_count=0;
 	private $_must_revind=false;
 	private $_slice_size=5;
 	private $_objects_cache=array();
@@ -132,11 +138,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			'/(^.+)people$/'=>'$1person',
 			'/(^.*)statuses$/'=>'$1status',
 			'/(^.*)konkurses$/'=>'$1konkurs',
+			'/(^.*)diseases$/'=>'$1disease',
 			'/(^.*)responses$/'=>'$1response',
 			'/(^.*)ses$/'=>'$1sis',
 			'/(^.*)ta$/'=>'$1tum',
 			'/(^.*)ia$/'=>'$1ium',
 			'/(^.*)children$/'=>'$1child',
+			'/(^.*)focuses$/'=>'$1focus',
 			'/(^.*)s$/'=>'$1'
 		);
 		
@@ -186,12 +194,14 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			'/(^.+)person$/'=>'$1people',
 			'/(^.*)status$/'=>'$1statuses',
 			'/(^.*)konkurs$/'=>'$1konkurses',
+			'/(^.*)disease$/'=>'$1diseases',
 			'/(^.*)man$/'=>'$1men',
 			'/(^.*)sis$/'=>'$1ses',
 			'/(^.*)tum$/'=>'$1ta',
 			'/(^.*)ium$/'=>'$1ia',
 			'/(^.*)response$/'=>'$1responses',
 			'/(^.*)child$/'=>'$1children',
+			'/(^.*)focus$/'=>'$1focuses', //foci?
 			'/(^.*)$/'=>'$1s'
 		);
 		
@@ -386,6 +396,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		return $this;
 	}
 	
+	public function f($id)
+	{
+		$this->_options['id']=(int)$id;
+		$this->find_by('id',(int)$id);
+		return $this;
+	}
+	
 	public function find_by($by,$what)
 	{
 		$this->_options['queryready']=false;
@@ -409,6 +426,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			$this->_options['new']=true;
 			$this->_future_data = array();
 			return $this;
+		}
+		if($name == 'clone'){
+			if(isset($arguments[0])){
+				return $this->clone_copy($arguments[0]);
+			}else{
+				return $this->clone_copy();
+			}
 		}
 		return $this;
 	}
@@ -445,7 +469,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			$param=$args[$i];
 			if(is_array($param)){
 				if(count($param)==0){
-					$param = ' false ';
+					$param = ' null ';
 				}else{
 					if(is_object($param)){
 						$newparam=array();
@@ -576,6 +600,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		} else {
 			$this->_options['select'] = ' * ';
 		}
+		return $this;
+	}
+	
+	public function and_select($select)
+	{
+		$this->_options['queryready']=false;
+		$this->_options['select'] = $this->_options['select'] . ' , '. $select;
 		return $this;
 	}
 	
@@ -820,12 +851,35 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 				die('<br>Это всё, что мы знаем.');
 			}
 			*/
-			
-			$this->_data =  $db_result ->fetchAll(PDO::FETCH_ASSOC);
-			
-			if($db_result!==false){
-				ActiveRecord::$_queries_cache[$_sql] = $this->_data;
+			if ($db_result === false) {
+				$parent_function = d()->_active_function();
+				if (d()->db->errorCode() != 0) {
+					$db_err = d()->db->errorInfo();
+					$_message = '<br>Также зафиксирована ошибка базы данных:<br>' . $db_err[2] . ' (' . $db_err[1] . ')';
+					if (iam('developer')) { 
+						if ($db_err[1] == '1146'){
+							$_message .= '<br> Создать таблицу <b>' . h(d()->bad_table) . '</b>? <form method="get" action="/admin/scaffold/new" style="display:inline;" target="_blank"><input type="submit" value="Создать"><input type="hidden" name="table" value="' . h(d()->bad_table) . '"></form> ';
+						}
+						if ($db_err[1] == '1054') {
+							$_column_name = array();
+							if (preg_match_all("/Unknown\scolumn\s\'(.*?)\'/", $db_err[2], $_column_name) == 1) {
+								$_column_name = $_column_name[1][0];
+								$_message .= '<br> Создать столбец <b>' . h($_column_name) . '</b> в таблице ' . h(d()->bad_table) . '? <form method="post" action="/admin/scaffold/create_column" style="display:inline;" target="_blank"><input type="submit" value="Создать"><input type="hidden" name="table" value="' . h(d()->bad_table) . '"><input type="hidden" name="column" value="' . h($_column_name) . '"></form> ';
+							}
+						}
+						$_message .= '<br> Провести обработку схемы? <form method="get" action="/admin/scaffold/update_scheme" style="display:inline;" target="_blank"><input type="submit" value="Провести"></form><br>';
+					}
+				}
+				print '<div style="padding:20px;border:1px solid red;background:white;color:black;">Ошибка при выполнении функции ' . $parent_function . $_message;
+				if (iam('developer')) {
+					print '<pre>' . $_sql . '</pre>';
+				}
+				print '</div>';
+				exit;
 			}
+			
+			$this->_data = $db_result->fetchAll(PDO::FETCH_ASSOC);
+			ActiveRecord::$_queries_cache[$_sql] = $this->_data;
 			
 		}
 		
@@ -859,6 +913,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			$_query_string='delete from '.DB_FIELD_DEL.''.$this->_options['table'] . DB_FIELD_DEL." where ".DB_FIELD_DEL."id".DB_FIELD_DEL." = '".$this->_data[0]['id']."'";
 			doitClass::$instance->db->exec($_query_string);
 		}
+		ActiveRecord::$_queries_cache = array();
 		return $this;
 	}
 
@@ -968,6 +1023,112 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 				if(!isset($exist[$second_id])){
 					$_query_string='insert into '.DB_FIELD_DEL. $many_to_many_table .DB_FIELD_DEL." (".DB_FIELD_DEL. $first_field .DB_FIELD_DEL.", ".DB_FIELD_DEL. $second_field .DB_FIELD_DEL." , ".DB_FIELD_DEL."created_at".DB_FIELD_DEL.",  ".DB_FIELD_DEL."updated_at".DB_FIELD_DEL . $additional_keys . ") values (". e($id) . ",". e( $second_id) . ", NOW(), NOW() " . $additional_values . " )";
 					doitClass::$instance->db->exec($_query_string);
+					$insert_id = doitClass::$instance->db->lastInsertId();
+					$_query_string = 'update ' . DB_FIELD_DEL . $many_to_many_table . DB_FIELD_DEL . ' set ' . DB_FIELD_DEL . 'sort' . DB_FIELD_DEL . '=' . DB_FIELD_DEL . 'id' . DB_FIELD_DEL . ' where ' . DB_FIELD_DEL . 'id' . DB_FIELD_DEL . '=' . e($insert_id);
+					doitClass::$instance->db->exec($_query_string);
+				}
+			}
+		}
+	}
+	
+	
+	/**
+	* Сохранение связей для запросов вида connected_friend_id_in_user_friends
+	*/
+	function save_connected_connecton_array($id,$table,$rules){
+		//Сохранение каждого из списка элементов. Если это не массив, сделать его таким
+		
+		foreach($rules as $key=>$data){
+			if(!is_array($data)){
+				if($data==''){
+					$data = array();
+				}else{
+					$data=explode(',',$data);
+				}
+			}
+			$find_in = strpos($key, '_in_');
+			if($find_in==false){
+				print '<div style="padding:20px;border:1px solid red;background:white;color:black;">Запросы вида connected_fieid_in_table должны иметь обязательное указание на таблицу' ;
+				if (iam('developer')) {
+					print '<pre>Поле с ошибкой: ' . htmlspecialchars($key) . '</pre>';
+				}
+				print '</div>';
+				exit;
+			}
+			
+			
+			$first_field = to_o($table).'_id';
+			$many_to_many_tables = explode('_in_', $key);
+			
+			
+			$second_field = substr($many_to_many_tables[0],10); 
+			$many_to_many_table = $many_to_many_tables[1];//Вторая таблица, например, user_friends
+ 
+			//0. проверяем наличие таблицы, при её отсуствии, создаём её
+			if(false == $this->columns($many_to_many_table)){
+				//таблицы many_to_many не существует  - создаем автоматически
+				$one_element=to_o($many_to_many_table);
+				d()->Scaffold->create_table($many_to_many_table,$one_element);
+				
+				d()->Scaffold->create_field($many_to_many_table,$second_field);
+				d()->Scaffold->create_field($many_to_many_table,$first_field);
+			}
+			$columns_names=array_flip($this->columns($many_to_many_table));
+			if(!isset($columns_names[$first_field])){
+				d()->Scaffold->create_field($many_to_many_table,$first_field);
+			}
+			if(!isset($columns_names[$second_field])){
+				d()->Scaffold->create_field($many_to_many_table,$second_field);
+			}
+			
+			$original_data = $data;
+			foreach($original_data as $key=>$value){
+				if(is_array($value)){
+					$data[$key] = $value[0];
+				}
+			}
+			//1.удаляем существующие данные из таблицы
+			if(count($data)>0){
+				$_query_string='delete from '.DB_FIELD_DEL.''.$many_to_many_table . DB_FIELD_DEL." where ".DB_FIELD_DEL. $second_field .DB_FIELD_DEL." NOT IN (". implode(', ',$data) .") AND ".DB_FIELD_DEL. $first_field .DB_FIELD_DEL." =  ". e($id) . "";
+			}else{
+				$_query_string='delete from '.DB_FIELD_DEL.''.$many_to_many_table . DB_FIELD_DEL." where ".DB_FIELD_DEL. $first_field .DB_FIELD_DEL." =  ". e($id) . "";
+			}
+			doitClass::$instance->db->exec($_query_string);
+			//2.добавляем нове записи в таблицу
+			$exist = doitClass::$instance->db->query("SELECT ".DB_FIELD_DEL.''.$second_field . DB_FIELD_DEL." as cln FROM ".DB_FIELD_DEL.''.$many_to_many_table . DB_FIELD_DEL."  where ".DB_FIELD_DEL. $first_field .DB_FIELD_DEL." =  ". e($id) . "")->fetchAll(PDO::FETCH_COLUMN);
+			$exist = array_flip($exist);
+
+			foreach($original_data as $second_id){
+				$additional_keys = '';
+				$additional_values = '';
+				$need_keys = array();
+				$need_values = array();
+				//В случае, если при записи to_users = array() передали массив массивов с дополнительными полями
+				if(is_array($second_id)){
+					if(count($second_id)>1){
+						foreach ($second_id as $key=>$value){
+							if(!is_numeric($key)){
+								$need_keys[]=DB_FIELD_DEL . $key . DB_FIELD_DEL;
+								if(SQL_NULL === $value){
+									$need_values[]='NULL';
+								}else{
+									$need_values[]=e($value);
+								}
+								
+							}
+						}
+						$additional_keys = ', ' . implode(', ',$need_keys);
+						$additional_values = ', ' . implode(', ',$need_values);
+					}
+					$second_id = $second_id[0];
+			
+				}
+				if(!isset($exist[$second_id])){
+					$_query_string='insert into '.DB_FIELD_DEL. $many_to_many_table .DB_FIELD_DEL." (".DB_FIELD_DEL. $first_field .DB_FIELD_DEL.", ".DB_FIELD_DEL. $second_field .DB_FIELD_DEL." , ".DB_FIELD_DEL."created_at".DB_FIELD_DEL.",  ".DB_FIELD_DEL."updated_at".DB_FIELD_DEL . $additional_keys . ") values (". e($id) . ",". e( $second_id) . ", NOW(), NOW() " . $additional_values . " )";
+					doitClass::$instance->db->exec($_query_string);
+					$insert_id = doitClass::$instance->db->lastInsertId();
+					$_query_string = 'update ' . DB_FIELD_DEL . $many_to_many_table . DB_FIELD_DEL . ' set ' . DB_FIELD_DEL . 'sort' . DB_FIELD_DEL . '=' . DB_FIELD_DEL . 'id' . DB_FIELD_DEL . ' where ' . DB_FIELD_DEL . 'id' . DB_FIELD_DEL . '=' . e($insert_id);
+					doitClass::$instance->db->exec($_query_string);
 				}
 			}
 		}
@@ -976,6 +1137,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 	public function save()  //CrUd - Create & Update
 	{
 		$to_array_cache=array();
+		$to_connected_array_cache=array();
 		$dictionary_array_cache=array();
 		$tmp_future_data = array();
 		$current_id=0;
@@ -983,11 +1145,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			if(substr($key,0,3)=='to_'){
 				$to_array_cache[$key]=$value;
 			}elseif(substr($key,0,11)=='dictionary_'){
-				if($this->_options['new']!=true) {
+				//if($this->_options['new']!=true) {
 					if($this->{$key} != str_replace("\r","",$value)){
 						$dictionary_array_cache[$key]=$value;
 					}
-				}
+				//}
+			}elseif(substr($key,0,10)=='connected_'){
+				$to_connected_array_cache[$key]=$value;
 			}else{
 				$tmp_future_data[$key]=$value;
 			}
@@ -1066,11 +1230,18 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		if($this->_options['new']==true) {
 			$this->insert_id = doitClass::$instance->db->lastInsertId();
 			$current_id = $this->insert_id;
-			$_query_string='update '.DB_FIELD_DEL.$this->_options['table'].DB_FIELD_DEL.' set '.
-			DB_FIELD_DEL ."sort". DB_FIELD_DEL ." = '".$this->insert_id."', ".
-			DB_FIELD_DEL ."created_at". DB_FIELD_DEL ." = NOW(), ".
-			DB_FIELD_DEL ."updated_at". DB_FIELD_DEL ." = NOW() ".
-			"where ". DB_FIELD_DEL ."id". DB_FIELD_DEL ." = '".$this->insert_id."'";
+			$_query_fields = array();
+			if (empty($this->_future_data["sort"])) {
+				$_query_fields[] = DB_FIELD_DEL ."sort". DB_FIELD_DEL ." = '".$this->insert_id."'";
+			}
+			if (empty($this->_future_data["created_at"])) {
+				$_query_fields[] = DB_FIELD_DEL ."created_at". DB_FIELD_DEL ." = NOW()";
+			}
+			if (empty($this->_future_data["updated_at"])) {
+				$_query_fields[] = DB_FIELD_DEL ."updated_at". DB_FIELD_DEL ." = NOW()";
+			}
+		     if (!empty($_query_fields)) {
+			$_query_string = 'update '.DB_FIELD_DEL.$this->_options['table'].DB_FIELD_DEL.' set ' . implode(', ', $_query_fields) . " where ". DB_FIELD_DEL ."id". DB_FIELD_DEL ." = '".$this->insert_id."'";
 			$_query_result = doitClass::$instance->db->exec($_query_string);
 			
  
@@ -1088,7 +1259,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 				doitClass::$instance->db->exec($_query_string);
 				ActiveRecord::$_columns_cache = array();				
 			}
-			
+		     }
 		}
 		$this->_future_data=array();
 		
@@ -1096,6 +1267,10 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		if(count($to_array_cache)!=0){
 			$this->save_connecton_array($current_id,$this->_options['table'],$to_array_cache);
 		}
+		if(count($to_connected_array_cache)!=0){
+			$this->save_connected_connecton_array($current_id,$this->_options['table'],$to_connected_array_cache);
+		}
+		
 		//Сохранение связанного словаря
 		if(count($dictionary_array_cache)!=0){
 			$this->save_dictionary_array($current_id,$this->_options['table'],$dictionary_array_cache);
@@ -1104,7 +1279,24 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		ActiveRecord::$_queries_cache = array();
 		return $this;
 	}
-
+	//Синоним id_or_insert_id
+	public function ioi()
+	{
+		return $this->insert_id ? $this->insert_id : $this->id;
+	}
+	
+	public function id_or_insert_id()
+	{
+		return $this->insert_id ? $this->insert_id : $this->id;
+	}
+	public function save_and_load()
+	{
+		$this->save();
+		$class = get_class($this);
+		$result = new $class;
+		return $result->find_by('id', $this->insert_id ? $this->insert_id : $this->id);
+	}
+	
 	public function create($params=array())  //Crud - Create
 	{
 		//Более быстрый вариант $this->new
@@ -1498,6 +1690,17 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 	{
 		return json_encode($this->to_array);
 	}
+	function to_json_by_id($pretty = false)
+	{
+		$result = array();
+		foreach ($this->to_array as $value){
+			$result[$value['id']] = $value;
+		}
+		if($pretty !== false){
+			return json_encode($result, $pretty);	
+		}
+		return json_encode($result);
+	}
 	function __set($name,$value)
 	{	
 		if(method_exists($this,'set_'.$name)) {
@@ -1563,23 +1766,29 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 	 * @param $id ID Объекта
 	 * @return int искомый ключ
 	 */
-	function get_cursor_key_by_id($id)
+	function get_cursor_key_by_id($id,$strict=false)
 	{
-		$key=0;
-		if ($this->_options['queryready']==false) {
-			$this->fetch_data_now();
-		}
-		if($this->_get_by_id_cache===false){
-			$this->_get_by_id_cache=array();
-			foreach ($this->_data as $key=>$value){
-				$this->_get_by_id_cache[$value['id']]=$key;
-			}
-			if(isset($this->_get_by_id_cache[$id])){
-				return $this->_get_by_id_cache[$id];
-			}
+		if($strict){
+			$key=false;
 		}else{
-			if(isset($this->_get_by_id_cache[$id])){
-				return $this->_get_by_id_cache[$id];
+			$key=0;
+		}
+		if (isset($id)) {
+			if ($this->_options['queryready']==false) {
+				$this->fetch_data_now();
+			}
+			if($this->_get_by_id_cache===false){
+				$this->_get_by_id_cache=array();
+				foreach ($this->_data as $k=>$value){
+					$this->_get_by_id_cache[$value['id']]=$k;
+				}
+				if(isset($this->_get_by_id_cache[$id])){
+					return $this->_get_by_id_cache[$id];
+				}
+			}else{
+				if(isset($this->_get_by_id_cache[$id])){
+					return $this->_get_by_id_cache[$id];
+				}
 			}
 		}
 		return $key;
@@ -1607,6 +1816,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			$this->_future_data = array();
 			return $this;
 		}
+		
+		//Item.clone
+		if ($name=='clone') { 
+			return $this->clone_copy();
+		}
+		
+		
 		//Item.expand_to_page
 		//DEPRECATED: в дальнейшем будет удалена
 		/*
@@ -1626,6 +1842,10 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			return $this->all_of(substr($name,4));
 		}
 		
+		if (substr($name,0,6)=='clone_') {
+			return $this->clone_copy(substr($name,6));
+		}
+		
 		if (substr($name,0,3)=='to_') {
 			if ($this->_options['queryready']==false) {
 				$this->fetch_data_now();
@@ -1634,6 +1854,25 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			$column = ActiveRecord::plural_to_one(strtolower(substr($name,3))).'_id';
 			$current_column = $this->_options['plural_to_one']."_id";
 			if(isset($this->_data[0])){
+				d()->bad_table = et($many_to_many_table );
+				$result = doitClass::$instance->db->query("SELECT " . DB_FIELD_DEL . $column . DB_FIELD_DEL . " FROM ".et($many_to_many_table )." WHERE ". DB_FIELD_DEL . $current_column . DB_FIELD_DEL ." = ". e($this->_data[$this->_cursor]['id']))->fetchAll(PDO::FETCH_COLUMN);
+				return implode(',',$result);
+			}else{
+				return '';
+			}
+			
+		}
+		if (substr($name,0,10)=='connected_') {
+
+			if ($this->_options['queryready']==false) {
+				$this->fetch_data_now();
+			}
+			$many_to_many_tables = explode('_in_', $name);
+			$many_to_many_table = $many_to_many_tables[1];//Вторая таблица, например, user_friends
+			$column = substr($many_to_many_tables[0],10); 
+			$current_column = $this->_options['plural_to_one']."_id";
+			if(isset($this->_data[0])){
+				d()->bad_table = et($many_to_many_table );
 				$result = doitClass::$instance->db->query("SELECT " . DB_FIELD_DEL . $column . DB_FIELD_DEL . " FROM ".et($many_to_many_table )." WHERE ". DB_FIELD_DEL . $current_column . DB_FIELD_DEL ." = ". e($this->_data[$this->_cursor]['id']))->fetchAll(PDO::FETCH_COLUMN);
 				return implode(',',$result);
 			}else{
@@ -1664,6 +1903,13 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			return $this->{$second_word}->all_of($first_word);
 		}
 		
+		$as_substr= strpos($name,'_as_');
+		if($as_substr!==false) {
+		
+			$first_word = substr($name,0,$as_substr);
+			$second_word = substr($name,$as_substr+4);
+			return $this->show_as($first_word, $second_word);
+		}
 		//Item.expand_all_to_pages
 		//DEPRECATED: в дальнейшем будет удалена
 		if (substr($name,0,14)=='expand_all_to_') {
@@ -1747,6 +1993,11 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 		return activerecord_factory_from_table($what)->where('id IN (?)', $results);
 
 	}
+	
+	function show_as($first_word, $second_word){
+		$second_word='as_'.$second_word;
+		return doitClass::$instance->{$second_word}($this->{$first_word},$first_word,$this);
+	}
 	function linked($tablename=false){
 
 		if ($tablename==false){
@@ -1820,7 +2071,40 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 			die('Произошла непредвиденная ошибка. Использование truncate без подтверждения запрещено. Возможно, это ошибка.');
 		}
 	}
-
+	
+	function clone_copy($name=NULL){
+		if(is_null($name)){
+			$clone =  clone $this;
+			$clone->_clones=array();
+			return $clone;
+		}
+		if (isset ($this->_clones[$name])){
+			return $this->_clones[$name];
+		}
+		$clone =  clone $this;
+		$clone->_clones=array();
+			
+		$this->_clones[$name] = $clone;
+		return $this->_clones[$name];
+	}
+	
+	function copy($name=NULL){
+		if(is_null($name)){
+			$clone =  clone $this;
+			$clone->_clones=array();
+			return $clone;
+		}
+		if (isset ($this->_clones[$name])){
+			return $this->_clones[$name];
+		}
+		$clone =  clone $this;
+		$clone->_clones=array();
+			
+		$this->_clones[$name] = $clone;
+		return $this->_clones[$name];
+	}
+ 
+	
 	/* 
 	Получение переменных напрямую
 	В случае необходимости получения в модели непосредственно значения переменной
@@ -1873,7 +2157,7 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 				return $this->_data[$this->_cursor][$name];
 			}
 
-			if(!isset(doitClass::$instance->datapool['_known_fields'][$this->_options['table']][$name])){
+			if(!in_array($name , doitClass::$instance->datapool['_known_fields'][$this->_options['table']])){
 
 
 				//Item.user          //Получение связанного объекта
@@ -1896,12 +2180,18 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 						/* кеш собранных массивов */
 						$ids_array=array();
 						foreach($this->_data as $key=>$value){
-							$ids_array[$value[$name.'_id']]=true;
+							if (!empty($value[$name.'_id'])){
+								$ids_array[$value[$name.'_id']]=true;
+							}
 						}
 						$ids_array=array_keys($ids_array);
 						$this->_objects_cache[$name] =  activerecord_factory_from_table(ActiveRecord::one_to_plural($name))->order('')->where(' '.DB_FIELD_DEL . id . DB_FIELD_DEL. ' IN (?)',$ids_array);
 					}
-					$cursor_key=$this->_objects_cache[$name]->get_cursor_key_by_id($this->_data[$this->_cursor][$name.'_id']);
+					$cursor_key=$this->_objects_cache[$name]->get_cursor_key_by_id($this->_data[$this->_cursor][$name.'_id'],true);
+					if($cursor_key===false){
+						$trash = clone($this->_objects_cache[$name]);
+						return $trash->limit('0')->where('false');
+					}
 					return $this->_objects_cache[$name][$cursor_key];
 				}
 
@@ -1985,6 +2275,12 @@ abstract class ActiveRecord implements ArrayAccess, Iterator, Countable //extend
 					$second_table_column = ActiveRecord::plural_to_one(strtolower($name)).'_id'; //user_id
 					if(isset($many_to_many_table_columns[$first_table_column]) && isset($many_to_many_table_columns[$second_table_column])){
 						//Таблица users_to_groups существует, и нужные столбцы есть в наличии
+						
+						$cache_ids = activerecord_factory_from_table($many_to_many_table)->select($second_table_column)->where("{$first_table_column} =  ?",$this->_data[$this->_cursor]['id'])->fast_all_of($second_table_column);
+						
+						
+						return $_tmpael->where("`id` IN (?)",$cache_ids);
+						//Медленный вариант уходит в Лету
 						return $_tmpael->where("`id` IN (SELECT {$second_table_column} FROM ".et($many_to_many_table)." WHERE {$first_table_column} =  ?)",$this->_data[$this->_cursor]['id']);								
 					}
 				}

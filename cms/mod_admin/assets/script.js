@@ -61,7 +61,8 @@
 //end jquery image paste plugin
 //////////////////////////////////
 
-
+ var editor ;
+	var textarea ;
 var admin_dropdown_timer;
 $(function () {
 
@@ -90,8 +91,36 @@ $(function () {
 	 function(){ $(this).removeClass('ui-state-focus').addClass('ui-state-default'); }
 	 );
 	 */
- 
+	if($('#content').length > 0){
+		editor = ace.edit("content");
+		editor.getSession().setMode("ace/mode/ini");
 
+		textarea = $('textarea[name="content"]').hide();
+		editor.getSession().setValue(textarea.val());
+		editor.getSession().on('change', function(){
+			textarea.val(editor.getSession().getValue());
+		});
+	}
+	
+	
+	$('.js-admin-big').each(function(){
+		if($(this).data('type')!==''){
+			$(this).parent().find('.js-aceeditor').show();
+			var $textarea = $(this).hide();
+			var edit = ace.edit($(this).parent().find('.js-aceeditor')[0]);
+			edit.getSession().setMode("ace/mode/" + $(this).data('type'));
+
+			//textarea = $('textarea[name="content"]').hide();
+			edit.getSession().setValue($(this).val());
+			edit.getSession().on('change', function(){
+			 
+				$textarea.val(edit.getSession().getValue());
+			});
+		}
+		
+	})
+	
+	//editor.getSession().setValue(textarea.val();
 	$('.enable_multiple').bind('click',function(e){
 		$('input[name=_enable_multiple]').val(1)
 		$('.control-group').hide();
@@ -114,9 +143,9 @@ $(function () {
 		skin:"o2k7",
 		convert_urls:false,
 		verify_html:false,
-		plugins:"pagebreak,style,table,save,advhr,advimage,advlink,emotions,inlinepopups,preview,media,contextmenu,paste,directionality,fullscreen,noneditable,nonbreaking,xhtmlxtras,simages,importexcel,mymodules",
+		plugins:"pagebreak,style,table,save,advhr,advimage,advlink,emotions,inlinepopups,preview,media,contextmenu,paste,directionality,fullscreen,noneditable,nonbreaking,xhtmlxtras,simages,importexcel,mymodules,pasteimage",
 		theme_advanced_buttons1:"save,newdocument,|,bold,italic,underline,strikethrough,|,justifyleft,justifycenter,justifyright,justifyfull,formatselect,fontsizeselect",
-		theme_advanced_buttons2:"cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,|,undo,redo,|,link,unlink,image,simages,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor",
+		theme_advanced_buttons2:"cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,|,undo,redo,|,link,unlink,anchor,image,simages,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor",
 		theme_advanced_buttons3:"tablecontrols,|,removeformat,visualaid,|,sub,sup,|,charmap,emotions,media,styleprops,|,nonbreaking,pagebreak,importexcel,mymodules",
 		theme_advanced_toolbar_location:"top",
 
@@ -132,9 +161,9 @@ $(function () {
 		skin:"o2k7",
 		convert_urls:false,
 		verify_html:false,
-		plugins:"pagebreak,style,table,save,advhr,advimage,advlink,emotions,inlinepopups,preview,media,contextmenu,paste,directionality,fullscreen,noneditable,nonbreaking,xhtmlxtras,simages,importexcel,mymodules",
+		plugins:"pagebreak,style,table,save,advhr,advimage,advlink,emotions,inlinepopups,preview,media,contextmenu,paste,directionality,fullscreen,noneditable,nonbreaking,xhtmlxtras,simages,importexcel,mymodules,pasteimage",
 		theme_advanced_buttons1:"save,newdocument,|,bold,italic,underline,strikethrough,|,justifyleft,justifycenter,justifyright,justifyfull,formatselect,fontsizeselect",
-		theme_advanced_buttons2:"cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,|,undo,redo,|,link,unlink,image,simages,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor",
+		theme_advanced_buttons2:"cut,copy,paste,pastetext,pasteword,|,search,replace,|,bullist,numlist,|,outdent,indent,|,undo,redo,|,link,unlink,anchor,image,simages,cleanup,help,code,|,insertdate,inserttime,preview,|,forecolor,backcolor",
 		theme_advanced_buttons3:"tablecontrols,|,removeformat,visualaid,|,sub,sup,|,charmap,emotions,media,styleprops,|,nonbreaking,pagebreak,importexcel,mymodules",
 		theme_advanced_toolbar_location:"top",
 
@@ -268,7 +297,12 @@ $(".drag-n-drop-target").each(function(){
 	};
 
 	*/
-})
+});
+
+$('.js-ajax-submit').on('click',function(){
+	$('.admin_edit_form').attr('target','save_target');
+});
+
 $(".str_input").pasteImageReader(function(results) {
   var dataURL, filename;
 
@@ -313,6 +347,8 @@ $(".str_input").pasteImageReader(function(results) {
 			
 			var multiple_files = [];
 		    var $targetfile =$(this).parent().parent().find('.str_input') 
+		    var $target_progressbar =$(this).parent().parent().find('.js-progress-bar') 
+		    var $target_progressbar_div = $target_progressbar.find('div') 
 			 
 		    var file;
 			
@@ -331,11 +367,33 @@ $(".str_input").pasteImageReader(function(results) {
 			    	multple_current++;
 			    	if ($this[0].files[multple_current]){
 			    		
+						$target_progressbar.removeClass('progress-success');
+						$target_progressbar.removeClass('progress-danger');
+						$target_progressbar.removeClass('progress-warning');
+						$target_progressbar.addClass('active');
+						
+						
 			    		file = $this[0].files[multple_current];
 						var data = new FormData();
 						data.append('Filedata', file);
 					    $.ajax({
-					        url: url,
+					        xhr: function()
+								{
+									var xhr = new window.XMLHttpRequest();
+									// прогресс загрузки на сервер
+									xhr.upload.addEventListener("progress", function(evt){
+										if (evt.lengthComputable) {
+											var percentComplete = evt.loaded / evt.total;
+											$target_progressbar.show();
+											$target_progressbar_div.css({'width': Math.round( percentComplete * 600)  + 'px'})
+											if (percentComplete==1){
+												$target_progressbar.addClass('progress-warning');
+											}
+										}
+									}, false);
+									return xhr;
+								},
+							url: url,
 					        data: data,
 		   					cache: false,
 						    contentType: false,
@@ -345,6 +403,17 @@ $(".str_input").pasteImageReader(function(results) {
 						    
 						        if(data=='error2'){
 						    		alert('неверный тип файла');
+									$target_progressbar.removeClass('progress-success');
+									$target_progressbar.removeClass('progress-warning');
+									$target_progressbar.addClass('progress-danger');
+									$target_progressbar.removeClass('active');
+						    	}else if(data=='error4'){
+						    		alert('Нет прав на запись в директорию загрузки');
+									$target_progressbar.removeClass('progress-success');
+									$target_progressbar.removeClass('progress-warning');
+									$target_progressbar.addClass('progress-danger');
+									$target_progressbar.removeClass('active');
+									
 						    	}else{
 						    		multiple_files.push(data)
 						    		
@@ -356,6 +425,9 @@ $(".str_input").pasteImageReader(function(results) {
 						        	if(multiple_files.length>0){
 						        		$targetfile.val(multiple_files.join(';'))
 						        	}
+									$target_progressbar.addClass('progress-success');
+									$target_progressbar.removeClass('progress-warning');
+									$target_progressbar.removeClass('active');
 						        	btn.button('reset')
 						        	$this.replaceWith($this.clone());
 					    		}
@@ -502,6 +574,9 @@ function create_field_template()
 	';list=yes\n'+
 	';edit=yes\n'+
 	
+	'\n'+
+	';[admin.titles]\n'+
+	';list_title = Название списка\n'+
  
 	'\n'+
 	';[admin.columns]\n'+
@@ -511,10 +586,12 @@ function create_field_template()
  
 	'\n'+
 	';[admin]\n'+
-	';urlredirect=/\n' 
+	';urlredirect=/\n' +
+	';list.sort_field=created_at\n'+
+	';list.sort_direction=desc\n'
 	
-	
-	)
+	);
+	editor.getSession().setValue(textarea.val());
 }
 function show_field_editor()
 {
@@ -545,8 +622,8 @@ function show_field_editor()
 function window_cancel()
 {
 	if(window.opener){
-		 window.open('','_self','');window.close();
+		window.open('','_self','');window.close();
 	} else {
-		history.history.go(-1);
+		window.history.go(-1);
 	}
 }
